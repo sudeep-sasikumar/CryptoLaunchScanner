@@ -33,7 +33,8 @@ from .state import LABEL_SQL, DexToken, Label, PumpToken
 from .wallets import Reputation
 
 log = logging.getLogger("engine")
-FAMILIES = ("pump", "dex")
+FAMILIES = ("pump", "dex")      # where the data comes from: every trade (pump.fun) or polled snapshots
+ALL = "all"                      # one scorecard, one threshold and one model cover every launchpad
 
 
 class Engine:
@@ -54,15 +55,15 @@ class Engine:
 
         self.pump: dict[str, PumpToken] = {}
         self.dex: dict[str, DexToken] = {}
-        self.models: dict[str, learner.Model | None] = {f: None for f in FAMILIES}
+        self.models: dict[str, learner.Model | None] = {ALL: None}
         self.started = self.last_tick = time.time()
         self.counts = {k: 0 for k in ("creates", "trades", "graduations", "snapshots", "gated_out", "calls",
                                       "labels", "hits", "doa", "finalized", "gaps", "dex_found")}
         self.create_ts: deque[float] = deque(maxlen=4000)
         self.grad_ts: deque[float] = deque(maxlen=2000)
         self.call_ts: deque[float] = deque(maxlen=200)
-        self.priors = {f: deque(maxlen=60000) for f in FAMILIES}          # (ts, prior) of recent snapshots
-        self.recent = {f: deque(maxlen=3000) for f in FAMILIES}           # (ts, hit) of recent labels
+        self.priors = {ALL: deque(maxlen=60000)}                          # (ts, prior) of recent snapshots
+        self.recent = {ALL: deque(maxlen=3000)}                           # (ts, hit) of recent labels
         self.tasks: set[asyncio.Task] = set()
         self.last_train: dict[str, dict] = {}
         self._load_state()
@@ -76,17 +77,15 @@ class Engine:
         self.db.execute("UPDATE calls SET status='expired', closed_ts=? WHERE status='open'", (now,))
         if n:
             log.info("%d unfinished snapshots from the previous run set aside", n)
-        for fam in FAMILIES:
-            r = self.db.one("SELECT path, ver FROM models WHERE family=? AND active=1 ORDER BY id DESC LIMIT 1", (fam,))
-            if r:
-                self.models[fam] = learner.Model.load(r["path"])
-            for row in self.db.query("SELECT ts, prior FROM snapshots WHERE family=? AND ts>? ORDER BY ts",
-                                     (fam, now - 86400)):
-                self.priors[fam].append((row["ts"], row["prior"] or 0.0))
-            for row in self.db.query("SELECT done_ts, hit FROM snapshots WHERE family=? AND done=1 AND tainted=0 "
-                                     "AND done_ts>? ORDER BY done_ts", (fam, now - 6 * 3600)):
-                self.recent[fam].append((row["done_ts"], row["hit"] or 0))
-            self.last_train[fam] = self.db.get(f"learn:{fam}", {})
+        r = self.db.one("SELECT path, ver FROM models WHERE family=? AND active=1 ORDER BY id DESC LIMIT 1", (ALL,))
+        if r:
+            self.models[ALL] = learner.Model.load(r["path"])
+        for row in self.db.query("SELECT ts, prior FROM snapshots WHERE ts>? ORDER BY ts", (now - 86400,)):
+            self.priors[ALL].append((row["ts"], row["prior"] or 0.0))
+        for row in self.db.query("SELECT done_ts, hit FROM snapshots WHERE done=1 AND tainted=0 AND done_ts>? "
+                                 "ORDER BY done_ts", (now - 6 * 3600,)):
+            self.recent[ALL].append((row["done_ts"], row["hit"] or 0))
+        self.last_train[ALL] = self.db.get(f"learn:{ALL}", {})
         self.db.commit()
 
     def spawn(self, coro) -> None:
@@ -145,6 +144,7 @@ class Engine:
             if not tok.meta_requested and tok.n_buys >= 6 and self.cfg.sources.metadata.enabled:
                 tok.meta_requested = True
                 self.spawn(self._fetch_meta(tok))
+                self.spawn(self._fetch_safety(tok))
         elif kind == "create":
             self._on_create(e, slot)
         elif kind == "complete":
@@ -207,6 +207,13 @@ class Engine:
         if n:
             log.warning("%s: %d live tokens set aside (kept out of training)", why, n)
 
+    async def _fetch_safety(self, tok: PumpToken) -> None:
+        """Contract powers of a pump.fun coin (mint / freeze authority, transfer fee or hook), the
+        same check every other launchpad's tokens get."""
+        r = await self.security.goplus_solana(tok.mint)
+        if r:
+            tok.security = {**(tok.security or {}), **r}
+
     async def _fetch_meta(self, tok) -> None:
         if isinstance(tok, PumpToken):
             m = await self.metadata.from_uri(tok.uri, tok.created_ts)
@@ -215,19 +222,19 @@ class Engine:
         tok.meta = {**(tok.meta or {}), **m}
 
     # ------------------------------------------------------------------ context shared by snapshots
-    def _ctx(self, fam: str, now: float) -> dict:
+    def _ctx(self, now: float) -> dict:
         lpm = sum(1 for t in self.create_ts if now - t <= 300) / 5.0
-        rec = [h for t, h in self.recent[fam] if now - t <= 3 * 3600]
+        rec = [h for t, h in self.recent[ALL] if now - t <= 3 * 3600]
         return {"launches_per_min": lpm, "recent_grads": sum(1 for t in self.grad_ts if now - t <= 3600),
                 "recent_hit_rate": sum(rec) / len(rec) if len(rec) >= 50 else None}
 
-    def threshold(self, fam: str, now: float) -> tuple[str, float]:
+    def threshold(self, now: float) -> tuple[str, float]:
         """('prob', cut) once a model is in use, else ('prior', cut) = top slice of the last 24 h."""
-        m = self.models[fam]
+        m = self.models[ALL]
         c = self.cfg.call
         if m is not None:
             return "prob", max(m.thr, c.min_prob)
-        vals = sorted(p for t, p in self.priors[fam] if now - t <= 86400)
+        vals = sorted(p for t, p in self.priors[ALL] if now - t <= 86400)
         if len(vals) < 100:
             return "prior", c.min_prior + 13.0              # too few scores to know the top slice: be strict
         cut = vals[min(len(vals) - 1, int(len(vals) * (1 - c.top_pct / 100.0)))]
@@ -244,7 +251,8 @@ class Engine:
             self.db.commit()
 
     def _tick(self, now: float) -> None:
-        cps = self.cfg.checkpoints.pump
+        cps = self.cfg.checkpoints
+        late = self.cfg.checkpoint_late_s["stream"]
         pc, lab = self.cfg.pump, self.cfg.label
         # holes must be caught here, before a silent token is mistaken for a dead one:
         # the process was frozen (host paused / asleep), or the feed has stopped talking
@@ -275,7 +283,7 @@ class Engine:
             while tok.next_cp < len(cps) and age >= cps[tok.next_cp]:
                 cp = cps[tok.next_cp]
                 tok.next_cp += 1
-                if age - cp < 45:                       # a late start must not fake an early snapshot
+                if age - cp < late:                     # a late start must not fake an early snapshot
                     self._pump_snapshot(tok, cp, now)
             if tok.snapshots == 0:
                 if (age >= pc.doa_age_s and tok.n_buys < pc.doa_buys) or tok.next_cp >= len(cps) \
@@ -295,7 +303,7 @@ class Engine:
                         lb.finish("idle")
                 if lb.done and lb.snap_id is not None:
                     done_rows.append(self._label_done(tok, lb, now))
-            last_cp = self.cfg.checkpoints.dex[-1]
+            last_cp = cps[-1]
             if tok.snapshots == 0 and (age > last_cp + 120 or tok.misses > 40):
                 del self.dex[tid]
             elif tok.snapshots and not tok.open_labels() and age > last_cp + 120:
@@ -307,7 +315,7 @@ class Engine:
     def _label_done(self, tok, lb: Label, now: float) -> tuple:
         row = lb.row(now)
         if not lb.tainted and not lb.hit and not lb.stopped:   # hits and stops were counted when they happened
-            self.recent[tok.family].append((now, 0))
+            self.recent[ALL].append((now, 0))
             self.counts["labels"] += 1
         if lb.call_id is not None:
             status = "hit" if lb.hit else "stopped" if lb.stopped else "expired"
@@ -323,7 +331,7 @@ class Engine:
         now = time.time()
         for lb, ev in events:
             if not lb.tainted:
-                self.recent[tok.family].append((now, int(ev == "hit")))
+                self.recent[ALL].append((now, int(ev == "hit")))
                 self.counts["labels"] += 1
                 self.counts["hits"] += int(ev == "hit")
             if ev == "hit" and lb.snap_id is not None:
@@ -349,12 +357,12 @@ class Engine:
 
     # ------------------------------------------------------------------ snapshots
     def _pump_snapshot(self, tok: PumpToken, cp: int, now: float) -> None:
-        g = self.cfg.activity_gate.pump
+        g = self.cfg.activity_gate
         if (tok.n_buys < g["min_buys"] or len(tok.wallets) < g["min_buyers"]
                 or now - tok.last_trade_ts > g["max_idle_s"] or tok.price < tok.p0 * g["min_mcap_mult"]):
             self.counts["gated_out"] += 1
             return
-        ctx = self._ctx("pump", now)
+        ctx = self._ctx(now)
         ctx["quote_kind"] = self.quotes.kind(tok.quote)
         ctx["quote_usd"] = self.quotes.price(tok.quote) if tok.q_known else None
         ctx["wq"] = self.rep.summarize(tok.early_buyers(self.cfg.learn.wallets.early_buyers))
@@ -373,25 +381,39 @@ class Engine:
                         "dex_boost": int(key in self.dexs.boosted)}
 
     async def _dex_snapshot(self, tok: DexToken, cp: int) -> None:
-        """Enrich (contract check, trade list, profile), then record. Runs as its own task."""
+        """Enrich (contract and holder checks, trade list, profile), then record. Runs as its own task."""
         solana = tok.chain == "solana"
-        jobs = [self.security.rugcheck(tok.address) if solana else self.security.goplus(tok.chain, tok.address)]
+        jobs = [self.security.goplus_solana(tok.address) if solana else self.security.goplus(tok.chain, tok.address)]
+        if solana:
+            jobs.append(self.security.rugcheck(tok.address))       # holders, insiders, creator - refreshed per snapshot
         want_trades = tok.trades is None and not self.gecko.busy() and tok.pool
         if want_trades:
             jobs.append(self.gecko.trades(tok.chain, tok.pool))
-        if tok.meta is None and self.cfg.sources.metadata.enabled:
-            jobs.append(self._fetch_meta(tok))
         res = await asyncio.gather(*jobs, return_exceptions=True)
-        if isinstance(res[0], dict):
-            tok.security = {**(tok.security or {}), **res[0]}
-        if want_trades and isinstance(res[1], list) and res[1]:
-            tok.trades = trade_features(res[1], tok.address)
+        for r in res[:2 if solana else 1]:
+            if isinstance(r, dict):
+                tok.security = {**(tok.security or {}), **r}
+        if want_trades and isinstance(res[-1], list) and res[-1]:
+            tok.trades = trade_features(res[-1], tok.address)
+        sec = tok.security or {}
+        if tok.meta is None and self.cfg.sources.metadata.enabled:
+            # Solana tokens publish a metadata document like pump.fun coins do; otherwise the DexScreener profile
+            if sec.get("_uri"):
+                tok.meta = await self.metadata.from_uri(sec["_uri"], tok.created_ts)
+            if not (tok.meta or {}).get("ok"):
+                await self._fetch_meta(tok)
+        creator = sec.get("_creator")
+        if creator and "cr_prev" not in tok.seen:
+            tok.seen["creator"] = creator
+            tok.seen["cr_prev"], tok.seen["cr_day"] = self.rep.creator_launched(creator, tok.created_ts)
         now = time.time()
         if not tok.ticks or tok.tainted:
             return
-        ctx = self._ctx("dex", now)
+        ctx = self._ctx(now)
         entries = list((tok.trades or {}).get("entries", {}))
         ctx["wq"] = self.rep.summarize(entries) if entries else None
+        ctx["creator"] = self.rep.creator(tok.seen["creator"]) if tok.seen.get("creator") else None
+        ctx["on_curve"] = any(d in tok.dex for d in self.cfg.sources.gecko.curve_dexes)
         self._paid_flags(tok)
         f = dex_features(tok, cp, now, ctx)
         self._record(tok, cp, now, f, tok.price)
@@ -401,10 +423,10 @@ class Engine:
         fam = tok.family
         if isinstance(tok, PumpToken) and tok.bar is not None:
             self._label_events(tok, tok._close_bar())       # the new label must only see trades from now on
-        prior, good, bad = prior_score(fam, f)
-        m = self.models[fam]
+        prior, good, bad = prior_score(f)
+        m = self.models[ALL]
         prob = m.predict(f) if m is not None else None
-        why_not = gate(fam, f, self.cfg, learned=m is not None)
+        why_not = gate(f, self.cfg, learned=m is not None)
         fkeys, packed = self.db.pack(f)
         cur = self.db.execute(
             "INSERT INTO snapshots(token_id,family,cp,ts,token_created_ts,price,mcap_usd,fkeys,features,prior,prob,"
@@ -416,11 +438,11 @@ class Engine:
         tok.labels.append(lb)
         tok.snapshots += 1
         self.counts["snapshots"] += 1
-        self.priors[fam].append((now, prior))
+        self.priors[ALL].append((now, prior))
         self._save_token(tok, now)
         if tok.called or why_not:
             return
-        kind, cut = self.threshold(fam, now)
+        kind, cut = self.threshold(now)
         value = prob if kind == "prob" else prior
         near = cut * 0.8 if kind == "prob" else cut - self.cfg.call.enrich_margin
         if value is not None and value >= near:
@@ -432,6 +454,9 @@ class Engine:
         jobs = []
         if tok.chain == "solana" and "rc_score" not in f:
             jobs.append(self.security.rugcheck(tok.address if fam == "dex" else tok.mint))
+        need_safety = fam == "pump" and not (tok.security or {}).get("sec_checked")
+        if need_safety:                                    # never call a coin whose contract was not checked
+            jobs.append(self._fetch_safety(tok))
         if self.narrator.enabled and "llm" not in (tok.meta or {}):
             jobs.append(self._rate(tok))
         if jobs:
@@ -439,14 +464,16 @@ class Engine:
             for r in res:
                 if isinstance(r, dict):
                     f.update(r)
+        if need_safety:
+            f.update({k: v for k, v in (tok.security or {}).items() if not k.startswith("_")})
         for k, v in ((tok.meta or {}).get("llm") or {}).items():
             f[("_llm" if k.startswith("_") else "llm_") + k] = v
-        prior, good, bad = prior_score(fam, f)
-        m = self.models[fam]
+        prior, good, bad = prior_score(f)
+        m = self.models[ALL]
         prob = m.predict(f) if m is not None else None
-        why_not = gate(fam, f, self.cfg, learned=m is not None)
+        why_not = gate(f, self.cfg, learned=m is not None, final=True)
         now = time.time()
-        kind, cut = self.threshold(fam, now)
+        kind, cut = self.threshold(now)
         value = prob if kind == "prob" else prior
         hour_calls = sum(1 for t in self.call_ts if now - t <= 3600)
         moved = abs(tok.price / lb.entry - 1) if lb.entry else 0
@@ -465,7 +492,7 @@ class Engine:
             (snap_id, tok.id, now, lb.entry, f.get("px_mcap_usd"), prior, prob, m.ver if m else None,
              json.dumps({"good": good, "bad": bad})))
         lb.call_id = cur.lastrowid
-        text = call_text(tok, f, prior, prob, m.ver if m else None, good, bad, self._call_hit_rate(fam), self.cfg.label)
+        text = call_text(tok, f, prior, prob, m.ver if m else None, good, bad, self._call_hit_rate(), self.cfg.label)
         msg_id = await self.telegram.send(text, dedupe=f"call:{tok.id}", kind="call")
         if msg_id:
             self.db.execute("UPDATE calls SET tg_msg_id=? WHERE id=?", (msg_id, lb.call_id))
@@ -478,9 +505,8 @@ class Engine:
             tok.meta = {**(tok.meta or {}), "llm": r}
         return None
 
-    def _call_hit_rate(self, fam: str) -> float | None:
-        r = self.db.one("SELECT COUNT(*) n, SUM(status='hit') h FROM calls c JOIN snapshots s ON s.id=c.snapshot_id "
-                        "WHERE s.family=? AND c.status IN ('hit','stopped','expired')", (fam,))
+    def _call_hit_rate(self) -> float | None:
+        r = self.db.one("SELECT COUNT(*) n, SUM(status='hit') h FROM calls WHERE status IN ('hit','stopped','expired')")
         return r["h"] / r["n"] if r and r["n"] >= 15 else None
 
     # ------------------------------------------------------------------ persistence of tokens
@@ -541,16 +567,22 @@ class Engine:
             await asyncio.sleep(poll)
 
     async def dex_loop(self) -> None:
-        """Price / volume ticks for non-pump tokens and for graduated pump coins; dex checkpoints."""
-        cps = self.cfg.checkpoints.dex
-        g = self.cfg.activity_gate.dex
+        """Price / volume ticks for non-pump tokens and for graduated pump coins; their checkpoints.
+        Young tokens are polled every `poll_s` so the 1- and 3-minute snapshots land on time."""
+        cps, late = self.cfg.checkpoints, self.cfg.checkpoint_late_s["poll"]
+        g = self.cfg.activity_gate
+        ds = self.cfg.sources.dexscreener
+        cycle = 0
         while True:
-            await asyncio.sleep(self.cfg.sources.dexscreener.poll_s)
+            await asyncio.sleep(ds.poll_s)
+            cycle += 1
+            every_old = max(1, round(ds.old_poll_s / ds.poll_s))
             try:
                 now = time.time()
                 by_chain: dict[str, list[DexToken]] = {}
                 for tok in self.dex.values():
-                    by_chain.setdefault(tok.chain, []).append(tok)
+                    if now - tok.created_ts < 900 or cycle % every_old == 0:
+                        by_chain.setdefault(tok.chain, []).append(tok)
                 for chain, toks in by_chain.items():
                     pairs = await self.dexs.pairs(chain, [t.address for t in toks])
                     now = time.time()
@@ -568,11 +600,13 @@ class Engine:
                         while not tok.tainted and tok.next_cp < len(cps) and age >= cps[tok.next_cp]:
                             cp = cps[tok.next_cp]
                             tok.next_cp += 1
-                            tx = (p.get("txns") or {}).get("h1") or {}
+                            buys = ((p.get("txns") or {}).get("h1") or {}).get("buys", 0)
                             liq = (p.get("liquidity") or {}).get("usd")
-                            if (age - cp < 240 and tx.get("buys", 0) + tx.get("sells", 0) >= g["min_txns_h1"]
-                                    and (liq is None or liq >= g["min_liquidity_usd"])
-                                    and ((p.get("volume") or {}).get("h1") or 0) >= g["min_volume_h1_usd"]):
+                            on_curve = any(d in tok.dex for d in self.cfg.sources.gecko.curve_dexes)
+                            # the same activity test as pump.fun coins, with what a snapshot shows
+                            if (age - cp < late and buys >= g["min_buys"]
+                                    and now - (tok.last_change_ts or tok.created_ts) <= g["max_idle_s"]
+                                    and (on_curve or liq is None or liq >= g["min_liquidity_usd"])):
                                 self.spawn(self._dex_snapshot(tok, cp))
                             else:
                                 self.counts["gated_out"] += 1
@@ -612,7 +646,7 @@ class Engine:
         lc = self.cfg.learn
         await asyncio.sleep(120)
         while True:
-            for fam in FAMILIES:
+            for fam in (ALL,):
                 last = self.last_train.get(fam, {})
                 collecting = "collecting" in (last.get("note") or "")
                 if time.time() - last.get("ts", 0) < (1 if collecting else lc.retrain_hours) * 3600:
@@ -652,7 +686,7 @@ class Engine:
             self.models[fam] = learner.Model.load(report["path"])
             t, thr = report["test"], report["threshold"]
             await self.telegram.send(
-                f"🧠 <b>New {fam} model in use</b> ({esc(report['ver'])})\n"
+                f"🧠 <b>New model in use</b> ({esc(report['ver'])}) - all launchpads\n"
                 f"Trained on {report['n_rows']:,} labelled snapshots ({report['n_pos']:,} winners).\n"
                 f"On the newest unseen {t['n']:,}: top 2% picks hit {_pc(t['model'].get('p_top2'))} "
                 f"vs scorecard {_pc(t['scorecard'].get('p_top2'))} (base rate {_pc(t['base_rate'])}).\n"
@@ -753,22 +787,22 @@ class Engine:
 
     def summary_text(self) -> str:
         since = time.time() - 86400
-        lines = ["📊 <b>Launch Radar — last 24 h</b>"]
-        for fam in FAMILIES:
-            c = self.db.one(
-                "SELECT COUNT(*) n, SUM(c.status='hit') h, SUM(c.status='stopped') s, SUM(c.status='open') o, "
-                "AVG(c.peak_mult) pk FROM calls c JOIN snapshots s ON s.id=c.snapshot_id WHERE s.family=? AND c.ts>?",
-                (fam, since))
-            b = self.db.one("SELECT COUNT(*) n, AVG(hit) r FROM snapshots WHERE family=? AND (done=1 OR hit=1) "
-                            "AND tainted=0 AND ts>?", (fam, since))
-            if not b["n"] and not c["n"]:
-                continue
-            closed = (c["h"] or 0) + (c["s"] or 0)
-            rate = f"{(c['h'] or 0) / closed * 100:.0f}%" if closed else "–"
-            lines.append(f"<b>{fam}</b>: {c['n']} calls → {c['h'] or 0} hit 2x, {c['s'] or 0} stopped, {c['o'] or 0} open "
-                         f"(hit rate {rate}, avg best {c['pk'] or 0:.2f}x)\n"
-                         f"   all {b['n']:,} snapshots: {_pc(b['r'])} would have 2x'd — "
-                         f"{'model ' + self.models[fam].ver if self.models[fam] else 'scorecard only (' + (self.last_train.get(fam, {}).get('note') or 'collecting') + ')'}")
+        c = self.db.one("SELECT COUNT(*) n, SUM(status='hit') h, SUM(status='stopped') s, SUM(status='open') o, "
+                        "AVG(peak_mult) pk FROM calls WHERE ts>?", (since,))
+        b = self.db.one("SELECT COUNT(*) n, AVG(hit) r FROM snapshots WHERE (done=1 OR hit=1) AND tainted=0 AND ts>?",
+                        (since,))
+        closed = (c["h"] or 0) + (c["s"] or 0)
+        rate = f"{(c['h'] or 0) / closed * 100:.0f}%" if closed else "–"
+        m = self.models[ALL]
+        decider = f"model {m.ver}" if m else f"scorecard only ({self.last_train.get(ALL, {}).get('note') or 'collecting'})"
+        lines = ["📊 <b>Launch Radar — last 24 h</b>",
+                 f"{c['n']} calls → {c['h'] or 0} hit 2x, {c['s'] or 0} stopped, {c['o'] or 0} open "
+                 f"(hit rate {rate}, avg best {c['pk'] or 0:.2f}x)",
+                 f"All {b['n']:,} snapshots: {_pc(b['r'])} would have 2x'd — {decider}"]
+        for pad in self.db.query("SELECT t.launchpad, COUNT(*) n, SUM(c.status='hit') h FROM calls c "
+                                 "LEFT JOIN tokens t ON t.id=c.token_id WHERE c.ts>? GROUP BY 1 ORDER BY 2 DESC LIMIT 6",
+                                 (since,)):
+            lines.append(f"   {esc(pad['launchpad'] or '?')}: {pad['n']} calls, {pad['h'] or 0} hit")
         return "\n".join(lines)
 
     def health(self) -> dict:
@@ -783,8 +817,8 @@ class Engine:
                        "msgs": s.msgs, "events": s.events, "reconnects": s.reconnects, "mb": round(s.bytes / 1e6, 1)},
             "apis": {k: {"calls": v.calls, "errors": v.errors, "rate_limited": v.limited, "backlog_s": round(v.backlog_s(), 1)}
                      for k, v in self.http.limiters.items()},
-            "thresholds": {f: self.threshold(f, now) for f in FAMILIES},
-            "models": {f: (self.models[f].ver if self.models[f] else None) for f in FAMILIES},
+            "thresholds": {ALL: self.threshold(now)},
+            "models": {ALL: (self.models[ALL].ver if self.models[ALL] else None)},
             "sol_usd": self.quotes.price(SYSTEM), "metadata": {"ok": self.metadata.fetched, "failed": self.metadata.failed},
             "llm": {"enabled": self.narrator.enabled, "used_today": self.narrator.used},
             "telegram": self.telegram.enabled,

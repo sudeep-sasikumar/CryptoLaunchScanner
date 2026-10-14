@@ -97,6 +97,7 @@ class PumpToken:
         self.max_ts = self.created_ts
         self.low_after_max = self.p0
         self.curve_left = CURVE_TOKENS
+        self.real_q = 0.0                     # quote actually held by the curve (its liquidity)
         self.bar_s = cfg.bar_s
         self.max_early, self.max_wallets = cfg.early_trades, cfg.max_wallets
         self.sniper_slots = cfg.sniper_slots
@@ -121,6 +122,7 @@ class PumpToken:
         self.snapshots = 0
         self.tainted = False                  # the stream dropped while this token was live
         self.meta: dict | None = None         # filled by the metadata fetch
+        self.security: dict | None = None     # filled by the contract check
         self.meta_requested = False
         self.seen: dict = {}                  # name / symbol / uri counts at creation
         self.called = False
@@ -148,6 +150,8 @@ class PumpToken:
         if vq and vt:
             self.price = vq / vt * self.scale
         self.curve_left = e.get("real_token_reserves", 0) / 1e6
+        rq = e.get("real_quote_reserves")
+        self.real_q = (rq if rq is not None else e.get("real_sol_reserves", 0)) / 10.0 ** self.qdec
         wallet, is_buy = e["user"], bool(e["is_buy"])
         events = self._bar_trade(ts, is_buy, tok, q)
 

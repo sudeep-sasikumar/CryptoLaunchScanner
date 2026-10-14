@@ -71,6 +71,8 @@ const num = (x, d=2) => x == null ? "–" : Number(x).toFixed(d);
 const money = x => x == null ? "–" : x >= 1e6 ? "$"+(x/1e6).toFixed(2)+"M" : x >= 1e3 ? "$"+(x/1e3).toFixed(1)+"k" : "$"+Math.round(x);
 const ago = ts => { const s = Date.now()/1000 - ts; return s < 90 ? Math.round(s)+"s" : s < 5400 ? Math.round(s/60)+"m" : s < 172800 ? (s/3600).toFixed(1)+"h" : Math.round(s/86400)+"d"; };
 const dur = s => s == null ? "–" : s < 90 ? Math.round(s)+"s" : s < 5400 ? Math.round(s/60)+"m" : (s/3600).toFixed(1)+"h";
+const SRC = {pump: "pump.fun (every trade)", dex: "other launchpads", all: "all launchpads"};
+const src = k => esc(SRC[k] || k);
 const multCls = m => m == null ? "dim" : m >= 2 ? "good" : m < 0.7 ? "bad" : "";
 
 async function api(path) {
@@ -136,22 +138,22 @@ const VIEWS = {
     const fam = f => d.score_buckets.filter(b => b.family === f);
     const maxRate = Math.max(0.01, ...d.score_buckets.map(b => b.rate||0), ...d.prob_buckets.map(b => b.rate||0));
     const bars = (rows, label) => table([label,"#Snapshots","#Went 2x",""], rows.map(b =>
-      `<tr><td>${esc(b.family)} · ${b.bucket}–${b.bucket+10}</td><td class="num">${b.n}</td><td class="num">${pct(b.rate,1)}</td><td><span class="bar" style="width:${Math.round((b.rate||0)/maxRate*260)}px"></span></td></tr>`), "No finished snapshots yet.");
+      `<tr><td>${src(b.family)} · ${b.bucket}–${b.bucket+10}</td><td class="num">${b.n}</td><td class="num">${pct(b.rate,1)}</td><td><span class="bar" style="width:${Math.round((b.rate||0)/maxRate*260)}px"></span></td></tr>`), "No finished snapshots yet.");
     return `<div class="cards">
       <div class="card"><span>Calls (30 d)</span><b>${t.n||0}</b></div>
       <div class="card"><span>Hit 2x</span><b class="good">${t.hit||0}</b></div>
       <div class="card"><span>Stopped (-50%)</span><b class="bad">${t.stopped||0}</b></div>
       <div class="card"><span>Hit rate</span><b>${closed?pct((t.hit||0)/closed):"–"}</b></div>
       <div class="card"><span>Average best multiple</span><b>${t.avg_peak?num(t.avg_peak)+"x":"–"}</b></div></div>
-      <h2>By day</h2>` + table(["Day","Family","#Calls","#Hit","#Stopped","#Open","#Hit rate","#Avg best"], d.by_day.map(r => { const c=(r.hit||0)+(r.stopped||0);
-        return `<tr><td>${r.day}</td><td>${r.family}</td><td class="num">${r.n}</td><td class="num good">${r.hit||0}</td><td class="num bad">${r.stopped||0}</td><td class="num">${r.open||0}</td><td class="num">${c?pct((r.hit||0)/c):"–"}</td><td class="num">${r.avg_peak?num(r.avg_peak)+"x":"–"}</td></tr>`; })) +
+      <h2>By day</h2>` + table(["Day","Source","#Calls","#Hit","#Stopped","#Open","#Hit rate","#Avg best"], d.by_day.map(r => { const c=(r.hit||0)+(r.stopped||0);
+        return `<tr><td>${r.day}</td><td>${src(r.family)}</td><td class="num">${r.n}</td><td class="num good">${r.hit||0}</td><td class="num bad">${r.stopped||0}</td><td class="num">${r.open||0}</td><td class="num">${c?pct((r.hit||0)/c):"–"}</td><td class="num">${r.avg_peak?num(r.avg_peak)+"x":"–"}</td></tr>`; })) +
       `<h2>By launchpad</h2>` + table(["Launchpad","#Closed calls","#Hit","#Hit rate","#Avg best"], d.by_launchpad.map(r =>
         `<tr><td>${esc(r.launchpad||"?")}</td><td class="num">${r.n}</td><td class="num">${r.hit||0}</td><td class="num">${pct((r.hit||0)/r.n)}</td><td class="num">${r.avg_peak?num(r.avg_peak)+"x":"–"}</td></tr>`)) +
       `<h2>Does a higher score mean more runners?</h2><p class="note">Every snapshot (not only calls), grouped by its score, with the share that went on to 2x. If the bars rise to the right, the scoring is working.</p>` +
       bars(d.score_buckets, "Scorecard") + (d.prob_buckets.length ? `<h2>Model probability vs. reality</h2>` + bars(d.prob_buckets, "Model %") : "") +
       `<h2>Base rates</h2><p class="note">How often any active launch 2x's from each snapshot age - the number the calls have to beat.</p>` +
-      table(["Family","Age at snapshot","#Snapshots","#Went 2x","#Avg best"], d.base_rates.map(r =>
-        `<tr><td>${r.family}</td><td>${dur(r.cp)}</td><td class="num">${r.n}</td><td class="num">${pct(r.rate,1)}</td><td class="num">${num(r.avg_peak)}x</td></tr>`));
+      table(["Source","Age at snapshot","#Snapshots","#Went 2x","#Avg best"], d.base_rates.map(r =>
+        `<tr><td>${src(r.family)}</td><td>${dur(r.cp)}</td><td class="num">${r.n}</td><td class="num">${pct(r.rate,1)}</td><td class="num">${num(r.avg_peak)}x</td></tr>`));
   },
   async learn() {
     const d = await api("learning");
@@ -160,17 +162,17 @@ const VIEWS = {
       <div class="card"><span>With enough history</span><b>${(d.wallets.seasoned||0).toLocaleString()}</b></div>
       <div class="card"><span>Smart wallets found</span><b class="good">${d.wallets.smart.length}${d.wallets.smart.length>=25?"+":""}</b></div>
       <div class="card"><span>Creators tracked</span><b>${(d.wallets.creators||0).toLocaleString()}</b></div></div><h2>Learning status</h2>`;
-    html += table(["Family","Labelled snapshots","Winners","Base rate","Status"], Object.entries(d.last).map(([f,r]) =>
-      `<tr><td>${f}</td><td>${(r.n_rows||0).toLocaleString()}</td><td>${(r.n_pos||0).toLocaleString()}</td><td>${pct(r.base_rate,1)}</td><td>${esc(r.note || r.verdict || "—")}${r.promoted?' <span class="good">→ promoted '+esc(r.ver)+'</span>':''}</td></tr>`));
+    html += table(["Covers","Labelled snapshots","Winners","Base rate","Status"], Object.entries(d.last).map(([f,r]) =>
+      `<tr><td>${src(f)}</td><td>${(r.n_rows||0).toLocaleString()}</td><td>${(r.n_pos||0).toLocaleString()}</td><td>${pct(r.base_rate,1)}</td><td>${esc(r.note || r.verdict || "—")}${r.promoted?' <span class="good">→ promoted '+esc(r.ver)+'</span>':''}</td></tr>`));
     html += `<h2>Models</h2><p class="note">Each retrain is tested on the newest 15% of history it never saw. "Top 2%" = of the 2% it ranked highest, how many really 2x'd, next to the hand scorecard on the same tokens.</p>` +
-      table(["Version","Family","Trained","#Rows","#Winners","#Top 2% (model)","#Top 2% (scorecard)","#Base rate","#Call threshold","#Expected hit rate","In use"], d.models.map(m => { const t=m.test||{}, th=m.threshold||{};
-        return `<tr><td>${esc(m.ver)}</td><td>${m.family}</td><td>${ago(m.ts)} ago</td><td class="num">${m.n_rows}</td><td class="num">${m.n_pos}</td><td class="num">${pct((t.model||{}).p_top2)}</td><td class="num">${pct((t.scorecard||{}).p_top2)}</td><td class="num">${pct(t.base_rate,1)}</td><td class="num">${pct(th.thr)}</td><td class="num">${pct(th.expected_precision)}</td><td>${m.active?'<span class="good">yes</span>':""}</td></tr>`; }), "No model yet - the scorecard is deciding while labelled history builds up.");
+      table(["Version","Covers","Trained","#Rows","#Winners","#Top 2% (model)","#Top 2% (scorecard)","#Base rate","#Call threshold","#Expected hit rate","In use"], d.models.map(m => { const t=m.test||{}, th=m.threshold||{};
+        return `<tr><td>${esc(m.ver)}</td><td>${src(m.family)}</td><td>${ago(m.ts)} ago</td><td class="num">${m.n_rows}</td><td class="num">${m.n_pos}</td><td class="num">${pct((t.model||{}).p_top2)}</td><td class="num">${pct((t.scorecard||{}).p_top2)}</td><td class="num">${pct(t.base_rate,1)}</td><td class="num">${pct(th.thr)}</td><td class="num">${pct(th.expected_precision)}</td><td>${m.active?'<span class="good">yes</span>':""}</td></tr>`; }), "No model yet - the scorecard is deciding while labelled history builds up.");
     const act = d.models.find(m => m.active && m.importance);
     if (act) html += `<h2>What the current model leans on most</h2>` + table(["Factor","#Importance"], act.importance.map(i => `<tr><td>${esc(i.feature)}</td><td class="num">${i.gain}</td></tr>`));
     for (const [f, lift] of Object.entries(d.lift)) {
       if (!lift.length) continue;
       const base = lift[0].base_rate;
-      html += `<h2>What separates winners — ${f}</h2><p class="note">${lift[0].n.toLocaleString()} finished snapshots, ${pct(base,1)} went 2x. Each factor is cut into value ranges; the cell shows the 2x rate in that range (greener = better than average). Strongest separators first.</p>` +
+      html += `<h2>What separates winners — ${src(f)}</h2><p class="note">${lift[0].n.toLocaleString()} finished snapshots, ${pct(base,1)} went 2x. Each factor is cut into value ranges; the cell shows the 2x rate in that range (greener = better than average). Strongest separators first.</p>` +
         table(["Factor","#Coverage","Value ranges → 2x rate","Best range","Worst range"], lift.slice(1).map(r =>
           `<tr><td>${esc(r.feature)}</td><td class="num">${pct(r.coverage)}</td><td><div class="cells">${r.cells.map(c => { const k=Math.max(-1,Math.min(1,(c.rate-base)/Math.max(base,0.01)/1.5));
             const col = k>=0 ? `rgba(63,185,80,${0.25+0.75*k})` : `rgba(240,101,90,${0.25+0.75*-k})`;
@@ -187,14 +189,14 @@ const VIEWS = {
       dev_dump:"Dev dump (creator sold most of their bag first)", bundle_dump:"Bundle / sniper dump (launch-block wallets sold out)", whale_dump:"Whale dump (one sell of 3%+ of supply after the top)",
       graduated:"Graduated to a DEX", still_up:"Still above half its peak when tracking ended"};
     return `<p class="note">Every tracked launch is classified by how it ended, from its last few thousand examples. Medians: how high it got, how long to the top, how long from the top to half, how much of the dev's bag was sold, and the share of volume in the crash that was selling.</p>` +
-      table(["Family","Ending","#Tokens","#Peak vs. launch","#Time to peak","#Top → half","#Dev bag sold","#Sells in crash bar"], rows.map(r =>
-        `<tr><td>${r.family}</td><td>${esc(names[r.kind]||r.kind)}</td><td class="num">${r.n}</td><td class="num">${r.peak?num(r.peak)+"x":"–"}</td><td class="num">${dur(r.t_peak)}</td><td class="num">${dur(r.t_half)}</td><td class="num">${pct(r.dev_sold)}</td><td class="num">${pct(r.crash_sell)}</td></tr>`));
+      table(["Source","Ending","#Tokens","#Peak vs. launch","#Time to peak","#Top → half","#Dev bag sold","#Sells in crash bar"], rows.map(r =>
+        `<tr><td>${src(r.family)}</td><td>${esc(names[r.kind]||r.kind)}</td><td class="num">${r.n}</td><td class="num">${r.peak?num(r.peak)+"x":"–"}</td><td class="num">${dur(r.t_peak)}</td><td class="num">${dur(r.t_half)}</td><td class="num">${pct(r.dev_sold)}</td><td class="num">${pct(r.crash_sell)}</td></tr>`));
   },
   async health(h) {
     const c = h.counts;
     return `<div class="cards">${[["Launches seen",c.creates],["Trades processed",c.trades],["Other-launchpad tokens",c.dex_found],["Snapshots",c.snapshots],["Below activity gate",c.gated_out],["Labels finished",c.labels],["…of which 2x",c.hits],["Calls",c.calls],["Stream gaps",c.gaps]].map(([l,v]) => `<div class="card"><span>${l}</span><b>${(v||0).toLocaleString()}</b></div>`).join("")}</div>
-      <h2>Call thresholds right now</h2>` + table(["Family","Decides by","#Needs at least","Model"], Object.entries(h.thresholds).map(([f,[k,v]]) =>
-        `<tr><td>${f}</td><td>${k==="prob"?"model probability":"scorecard (top slice of last 24 h)"}</td><td class="num">${k==="prob"?pct(v):num(v,1)}</td><td>${esc(h.models[f]||"none yet")}</td></tr>`)) +
+      <h2>Call thresholds right now</h2>` + table(["Covers","Decides by","#Needs at least","Model"], Object.entries(h.thresholds).map(([f,[k,v]]) =>
+        `<tr><td>${src(f)}</td><td>${k==="prob"?"model probability":"scorecard (top slice of last 24 h)"}</td><td class="num">${k==="prob"?pct(v):num(v,1)}</td><td>${esc(h.models[f]||"none yet")}</td></tr>`)) +
       `<h2>Data sources</h2>` + table(["Source","#Calls","#Errors","#Rate-limited","#Queue"], [`<tr><td>pump.fun stream</td><td class="num">${h.stream.msgs.toLocaleString()} msgs</td><td class="num">${h.stream.reconnects} reconnects</td><td class="num">–</td><td class="num">${h.stream.mb} MB</td></tr>`]
         .concat(Object.entries(h.apis).map(([k,v]) => `<tr><td>${esc(k)}</td><td class="num">${v.calls}</td><td class="num">${v.errors}</td><td class="num">${v.rate_limited}</td><td class="num">${v.backlog_s}s</td></tr>`))) +
       `<p class="note">Telegram: ${h.telegram?"connected":"<span class='warn'>not configured (alerts print to the log)</span>"} · LLM meme rating: ${h.llm.enabled?"on, "+h.llm.used_today+" used today":"off"} · Metadata fetched: ${h.metadata.ok} ok / ${h.metadata.failed} failed</p>`;

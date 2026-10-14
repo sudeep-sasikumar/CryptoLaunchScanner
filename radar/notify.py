@@ -117,24 +117,31 @@ def call_text(tok, f: dict, prior: float, prob: float | None, model_ver: str | N
         score = f"Scorecard <b>{prior:.0f}/100</b>  (learning - no model yet)"
         if expected is not None:
             score += f" · calls like this have hit {expected * 100:.0f}% so far"
-    lines = [head, score, f"Mcap {money(f.get('px_mcap_usd'))}"]
-    if tok.family == "pump":
-        lines[-1] += f" · curve {f.get('px_curve_pct', 0):.0f}% · {f.get('dist_holders', 0)} holders · {f.get('flow_buys', 0)} buys / {f.get('flow_sells', 0)} sells"
-        lines.append(f"Bundle+snipers {f.get('launch_bundle_pct', 0):.1f}% · dev holds {f.get('launch_dev_hold_pct', 0):.1f}% "
-                     f"(sold {f.get('launch_dev_sold_pct', 0):.0f}% of bag) · top10 {f.get('dist_top10_with_dev_pct', 0):.0f}%")
-    else:
-        lines[-1] += f" · liq {money(f.get('px_liq_usd'))} · h1 {f.get('flow_buys_h1', 0)} buys / {f.get('flow_sells_h1', 0)} sells"
-        sec = []
-        if f.get("sec_tax_max") is not None:
-            sec.append(f"tax {f['sec_tax_max']:.0f}%")
+    # the same rows for every launchpad; a value the launchpad does not expose shows as "?"
+    def pct(k, d=0):
+        v = f.get(k)
+        return "?" if v is None else f"{v:.{d}f}%"
+    market = [f"Mcap {money(f.get('px_mcap_usd'))}", f"liq {money(f.get('px_liq_usd'))}"]
+    if f.get("dist_holders") is not None:
+        market.append(f"{f['dist_holders']:.0f} holders")
+    market.append(f"{f.get('flow_buys_per_min', 0):.0f} buys/min, {pct('flow_buy_share_recent')} buying"
+                  if f.get("flow_buy_share_recent") is None else
+                  f"{f.get('flow_buys_per_min', 0):.0f} buys/min, {f['flow_buy_share_recent'] * 100:.0f}% buying")
+    lines = [head, score, " · ".join(market)]
+    lines.append(f"Launch: bundle {pct('launch_slot0_pct', 1)} · snipers {pct('launch_sniper_pct', 1)} · "
+                 f"dev holds {pct('launch_dev_hold_pct', 1)}"
+                 + (f" (sold {f['launch_dev_sold_pct']:.0f}% of bag)" if f.get("launch_dev_sold_pct") is not None else "")
+                 + f" · top10 {pct('dist_top10_with_dev_pct')}")
+    sec = []
+    if f.get("sec_checked"):
+        sec.append("no honeypot" if not f.get("sec_honeypot") else "HONEYPOT FLAG")
+        sec.append(f"tax {f.get('sec_tax_max') or 0:.0f}%")
+        sec.append("no mint/freeze" if not (f.get("sec_mintable") or f.get("sec_blacklist")) else "mint/freeze powers ACTIVE")
         if f.get("sec_renounced") is not None:
             sec.append("renounced" if f["sec_renounced"] else "owner active")
-        if f.get("sec_lp_locked_pct") is not None:
-            sec.append(f"LP locked {f['sec_lp_locked_pct']:.0f}%")
-        if f.get("sec_top10_pct") is not None:
-            sec.append(f"top10 {f['sec_top10_pct']:.0f}%")
-        if sec:
-            lines.append("Contract: " + " · ".join(sec))
+    if f.get("sec_lp_locked_pct") is not None:
+        sec.append("liquidity in bonding curve" if f.get("px_on_curve") else f"LP locked {f['sec_lp_locked_pct']:.0f}%")
+    lines.append("Contract: " + (" · ".join(sec) if sec else "not checked"))
     wq = []
     if f.get("wq_smart_n"):
         wq.append(f"{f['wq_smart_n']} smart wallets in")

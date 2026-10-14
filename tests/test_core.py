@@ -111,12 +111,12 @@ def test_bundled_launch_is_detected_and_vetoed():
     assert f["launch_slot0_pct"] > 15 and f["launch_bundle_pct"] > f["launch_slot0_pct"]
     assert f["launch_dev_sold_pct"] == 100 and f["launch_dev_hold_pct"] == 0
     assert f["launch_same_size_share"] > 0.3                     # twelve identical 0.2 SOL buys
-    assert f["launch_bundle_held_pct"] > 25 and "still hold" in gate("pump", f, C)
-    assert gate("pump", f, C, learned=True) is None             # an opinion veto: a trained model judges it instead
-    assert "rugged" in gate("pump", {**f, "rc_rugged": 1}, C, learned=True)      # a safety veto: always applies
+    assert f["launch_bundle_held_pct"] > 25 and "still hold" in gate(f, C)
+    assert gate(f, C, learned=True) is None             # an opinion veto: a trained model judges it instead
+    assert "rugged" in gate({**f, "rc_rugged": 1}, C, learned=True)      # a safety veto: always applies
     clean = pump_features(_clean_launch()[1], 60, c.ts + 60, {"quote_usd": 100.0, "quote_kind": 0})
-    assert gate("pump", clean, C) is None
-    assert prior_score("pump", clean)[0] > prior_score("pump", f)[0] + 10
+    assert gate(clean, C) is None
+    assert prior_score(clean)[0] > prior_score(f)[0] + 10
 
 
 def test_sell_by_wallet_that_never_bought_counts_as_phantom():
@@ -149,7 +149,7 @@ def test_unknown_quote_price_blocks_a_call_but_not_the_snapshot():
     c, tok = _clean_launch()
     f = pump_features(tok, 60, c.ts + 60, {"quote_usd": None, "quote_kind": 3})
     assert f["px_mcap_usd"] is None and f["px_mult"] > 1
-    assert "quote" in gate("pump", f, C)
+    assert "quote" in gate(f, C)
 
 
 # ---------------------------------------------------------------- other pieces

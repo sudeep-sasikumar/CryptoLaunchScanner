@@ -12,7 +12,7 @@ to zero; a call is a statistical edge at best, never a promise.
 ## 1. What it does, in one loop
 
 ```
-launch appears ─► watched trade by trade ─► SNAPSHOT at 1, 3, 10, 30 min   (5, 15, 45 min off pump.fun)
+launch appears ─► watched ─► SNAPSHOT at 1, 3, 10, 30 min   (the same ages on every launchpad)
                                                │  every factor, as known at that second
                                                ├─► hard vetoes (honeypot, bundle, dev dump ...)
                                                ├─► score: scorecard 0-100, or model probability once trained
@@ -23,6 +23,14 @@ every 12 h: retrain on all labels ─► test on the newest unseen data ─► p
 
 Every active launch gets snapshots and labels, **not just the ones that were called**. That is what
 lets it learn from the runners it missed and the rugs it avoided.
+
+**Every launchpad is judged the same way**: the same ages, one scorecard, one veto list, one learned
+model (with the launchpad as one of its factors). pump.fun coins get the same contract-safety checks
+as everything else; other launchpads get the same launch-fairness and demand factors as pump.fun.
+What differs is only how much can be seen: pump.fun is read trade by trade from the chain; other
+launchpads through GeckoTerminal (found 1-2 minutes after launch, so their 1-minute snapshot is
+taken when first seen), DexScreener snapshots every 15 s, their pool's trade list, and GoPlus /
+RugCheck holder data. A factor that cannot be measured for a launchpad scores neutral.
 
 ## 2. What "a runner" means here
 
@@ -41,7 +49,7 @@ Price is averaged over 15-second bars, so a single freak trade cannot fake a 2x.
 | 4 | Fair launch | 1-3 together, plus dev's own buy and time to first outside buy. |
 | 5, 6 | Unique product / flywheel / utility / viral meme | Optional Claude rating of name, ticker, description, links: `llm_viral`, `llm_original`, `llm_utility`, `llm_effort`. Copycats launched *after* the coin (`id_name_after_n`) measure spread directly. |
 | 7 | Smart wallets | **Learned, not bought.** Every finished token credits its first 40 buyers; wallets that are early in winners far more than average, with realised profit, become smart (`wq_smart_n`, `wq_smart_holding_n`). |
-| 8 | Clean contract | pump.fun coins are fixed-supply with no tax by construction. Elsewhere: GoPlus honeypot / tax / owner / mint / blacklist / verified (`sec_*`); RugCheck on Solana (`rc_*`). Hard vetoes. |
+| 8 | Clean contract | Every token, pump.fun included: GoPlus honeypot / transfer fee or tax / mint, freeze and blacklist powers / renounced (`sec_*`), on Solana and EVM chains; RugCheck on Solana (`rc_*`). Safety vetoes, and no call at all unless the check answered. |
 | 9 | Few same-name tokens | Every name and ticker ever seen is counted (`id_name_prev_n`, `id_sym_prev_n`, burst in last 10 min). |
 | 10 | Image not reused | Perceptual hash of the image; counts earlier tokens with the same picture (`id_img_prev_n`). Same for metadata link. |
 | 11, 12 | X profile / TG group | From token metadata: present or not, own account vs. a random post, reused by earlier tokens, Telegram member count. |
@@ -64,7 +72,8 @@ mayhem / cashback / holder-reward modes, creator's launch count in 24 h, bonding
 
 1. **Labels.** Each snapshot is followed until it resolves. Nothing is assumed.
 2. **Retrain** every 12 h (once there are 1,500 labelled snapshots and 60 winners - roughly the first
-   day on pump.fun). A gradient-boosted model per family (`pump`, `dex`).
+   day). One gradient-boosted model for all launchpads; the launchpad, chain and data source are
+   factors it can use if they matter.
 3. **Honest test.** History is split by time: fit on the oldest 70%, test on the newest 15% it never
    saw. The new model replaces the old one only if it clearly beats the hand scorecard, beats luck
    (99% of random rankings), and is no worse than the model in use.
@@ -159,9 +168,12 @@ Override without editing the file: `RADAR_OVERRIDES="call.top_pct=1;label.target
 ## 9. Known limits
 
 - **First day = scorecard only.** The hand weights are a starting opinion, not a tested edge.
-- **Off-pump.fun launches are seen about a minute late** and less deeply (periodic snapshots, not
-  every trade). On the free GeckoTerminal limit a busy Solana minute can hide some non-pump pools;
-  the free CoinGecko demo key fixes most of that.
+- **Off-pump.fun launches are seen 1-2 minutes late** and less deeply (15-second snapshots and the
+  pool's last 300 trades, not every trade): dev selling and airdropped-holder checks exist only for
+  pump.fun and score neutral elsewhere. On the free GeckoTerminal limit a busy Solana minute can hide
+  some non-pump pools; the free CoinGecko demo key fixes most of that.
+- **RugCheck can be unavailable** (it returned errors for every token during the last test run);
+  Solana holder figures for non-pump tokens then score neutral.
 - **No X/Twitter mention counts** (paid API).
 - **The public Solana RPC can drop.** Tokens live during a drop are set aside and never trained on.
   A free Helius key in `SOLANA_WS_URL` is steadier.
@@ -186,5 +198,5 @@ radar/sources/           pump.fun stream + decoder, GeckoTerminal, DexScreener, 
 radar/llm.py             optional Claude meme / narrative rating
 radar/notify.py          Telegram
 radar/web/               dashboard
-tests/                   27 tests
+tests/                   32 tests
 ```

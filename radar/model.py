@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 
 log = logging.getLogger("model")
-CATEGORICAL = ("chain", "launchpad")
+CATEGORICAL = ("chain", "launchpad", "source")    # source: every trade seen (stream) or snapshots (poll)
 HALF_LIFE_DAYS = 30.0
 
 
@@ -42,9 +42,11 @@ class Dataset:
         try:
             self.layouts = {i: tuple(json.loads(k)) for i, k in con.execute("SELECT id, keys FROM feature_keys")}
             # a 2x is final the moment it happens (hit=1), a loss when the label is done
+            # family "all" = every launchpad in one model (the launchpad itself is one of the factors)
             rows = con.execute(
-                "SELECT token_id, ts, fkeys, features, prior, hit FROM snapshots WHERE family=? AND tainted=0 "
-                "AND (done=1 OR hit=1) ORDER BY token_created_ts DESC, id DESC LIMIT ?", (family, max_rows)).fetchall()
+                "SELECT token_id, ts, fkeys, features, prior, hit FROM snapshots WHERE (?='all' OR family=?) "
+                "AND tainted=0 AND (done=1 OR hit=1) ORDER BY token_created_ts DESC, id DESC LIMIT ?",
+                (family, family, max_rows)).fetchall()
         finally:
             con.close()
         rows.reverse()

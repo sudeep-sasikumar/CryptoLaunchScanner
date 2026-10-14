@@ -112,9 +112,13 @@ def identity_features(tok, now: float) -> dict:
 def pump_features(tok: PumpToken, cp: int, now: float, ctx: dict) -> dict:
     w, devs, slot0 = tok.wallets, tok.devs, tok.created_slot
     age = max(now - tok.created_ts, 1.0)
-    f: dict = {"cp": cp, "age_s": age}
+    f: dict = {"cp": cp, "age_s": age, "chain": "solana", "launchpad": "pump.fun", "source": "stream"}
     f.update(tok.flags)
     f["quote_kind"] = ctx.get("quote_kind", 3)
+    # contract safety, asked of pump.fun coins exactly as of any other token (GoPlus Solana)
+    f.update({k: v for k, v in (tok.security or {}).items() if not k.startswith("_")})
+    if not tok.graduated_ts:
+        f["sec_lp_locked_pct"] = 100.0          # liquidity sits in the bonding curve: nobody can pull it
 
     # ---- price / chart
     price, usd = tok.price, ctx.get("quote_usd")
@@ -154,6 +158,12 @@ def pump_features(tok: PumpToken, cp: int, now: float, ctx: dict) -> dict:
     f["flow_last60_buy_share"] = sum(b[B_BQ] for b in last) / lq if lq else None
     f["flow_accel"] = lq / pq if pq else None
     f["flow_last60_new_buyers"] = sum(b[B_NEW] for b in last)
+    # the same names every launchpad gets, so one scorecard and one model cover all of them
+    f["flow_buy_share_recent"] = f["flow_last60_buy_share"]
+    f["flow_buys_per_min"] = sum(b[B_NB] for b in last)
+    f["px_liq_usd"] = tok.real_q * usd if usd else None
+    f["px_liq_per_mcap"] = tok.real_q / tok.mcap_q() if tok.mcap_q() else None
+    f["px_on_curve"] = 0 if tok.graduated_ts else 1
     f["flow_idle_s"] = now - tok.last_trade_ts
     f["flow_max_buy_pct"] = _pct(tok.max_buy_tok)
     f["flow_max_sell_pct"] = _pct(tok.max_sell_tok)
@@ -236,14 +246,21 @@ def pump_features(tok: PumpToken, cp: int, now: float, ctx: dict) -> dict:
     f.update({k: v for k, v in wq.items() if not k.startswith("_")})
     if wq.get("_smart"):
         f["wq_smart_holding_n"] = sum(1 for a in wq["_smart"] if a in w and w[a][NET] > 1.0)
-    cr = ctx.get("creator")
-    f["cr_prev_n"], f["cr_day_n"] = (tok.seen or {}).get("cr_prev"), (tok.seen or {}).get("cr_day")
+    f.update(creator_features(tok, ctx))
+    f.update(identity_features(tok, now))
+    f.update(context_features(now, ctx))
+    return f
+
+
+def creator_features(tok, ctx: dict) -> dict:
+    """The creator's record, learned from their earlier launches (any launchpad)."""
+    s, cr = tok.seen or {}, ctx.get("creator")
+    if "cr_prev" not in s:
+        return {}
+    f = {"cr_prev_n": s.get("cr_prev"), "cr_day_n": s.get("cr_day")}
     if cr is not None:
         f.update({"cr_snap_n": cr["n_snap"], "cr_grad_n": cr["n_grad"], "cr_win_n": cr["n_win"],
                   "cr_dead_n": cr["n_dead"], "cr_best_mult": cr["best_mult"]})
-
-    f.update(identity_features(tok, now))
-    f.update(context_features(now, ctx))
     return f
 
 
@@ -297,7 +314,34 @@ def dex_features(tok: DexToken, cp: int, now: float, ctx: dict) -> dict:
             f[k] = t[k]
     wq = ctx.get("wq") or {}
     f.update({k: v for k, v in wq.items() if not k.startswith("_")})
-    f.update({k: v for k, v in (tok.security or {}).items() if not k.startswith("_")})
+    s = tok.security or {}
+    f.update({k: v for k, v in s.items() if not k.startswith("_")})
+
+    # the same factor names as pump.fun coins, from what this launchpad lets us see
+    f["source"] = "poll"
+    f["flow_buy_share_recent"] = f["flow_buy_share_m5"]
+    f["flow_buys_per_min"] = f["flow_buys_m5"] / 5
+    vol_now = f["flow_vol_m5_usd"]
+    older = next((q for t_, q in reversed(tok.ticks) if ts - t_ >= 270), None)   # the previous 5-minute window
+    vol_then = _num((older.get("volume") or {}).get("m5")) if older else None
+    f["flow_accel"] = vol_now / vol_then if vol_now is not None and vol_then else None
+    f["px_on_curve"] = int(bool(ctx.get("on_curve")))
+    if f["px_on_curve"] and f.get("sec_lp_locked_pct") is None:
+        f["sec_lp_locked_pct"] = 100.0                      # a bonding curve holds the liquidity
+    f["launch_slot0_pct"] = t.get("launch_block0_pct")
+    f["launch_sniper_pct"] = t.get("launch_sniper_pct")
+    f["launch_cluster_pct"] = t["launch_cluster_share"] * 100 if t.get("launch_cluster_share") is not None else None
+    holders = s.get("sec_holders") or s.get("rc_holders")
+    f["dist_holders"] = holders
+    # holder figures lag a new token on EVM scanners (at first the deployer "holds" everything)
+    if (holders or 0) >= 20 or s.get("rc_top10_pct") is not None:
+        top10 = s.get("sec_top10_pct")
+        f["dist_top10_with_dev_pct"] = top10 if top10 is not None else s.get("rc_top10_pct")
+        top1 = s.get("sec_top1_pct")
+        f["dist_top1_pct"] = top1 if top1 is not None else s.get("rc_top1_pct")
+        dev = s.get("sec_creator_pct")
+        f["launch_dev_hold_pct"] = dev if dev is not None else s.get("rc_creator_pct")
+    f.update(creator_features(tok, ctx))
     f.update(identity_features(tok, now))
     f.update(context_features(now, ctx))
     return f
@@ -350,7 +394,9 @@ def trade_features(trades: list[dict], token_addr: str) -> dict:
     if complete:
         out["launch_block0_n"] = len(b0)
         out["launch_block0_pct"] = sum(buy_usd[w] for w in b0) / total * 100 if total else None
-        out["launch_sniper_n"] = len({w for blk, w, is_buy, *_ in rows if is_buy and 0 < blk - first_block <= 3})
+        snipers = {w for blk, w, is_buy, *_ in rows if is_buy and 0 < blk - first_block <= 3} - b0
+        out["launch_sniper_n"] = len(snipers)
+        out["launch_sniper_pct"] = sum(buy_usd[w] for w in snipers) / total * 100 if total else None
     return out
 
 
