@@ -95,7 +95,7 @@ scanner calls the top 2% of scores from the last 24 h.
 | Source | Used for | Limit seen |
 |---|---|---|
 | **GMGN OpenAPI** (free key) | New launches on every launchpad (`/v1/trenches`, seconds after creation); per token: holders, top 10, dev, insiders, bundlers, phishing, snipers, bots, fresh wallets, smart money, KOLs, creator history, socials, X followers, TG calls, DexScreener payments, contract safety, LP burn | free plan 5 weight/s (token call 1, feed 2); the scanner needs about 1.5/s |
-| Solana RPC websocket, pump.fun program logs | Every pump.fun create / trade / graduation, with slot numbers | ~350 messages/s, ~85 GB/day download on the public node |
+| Solana RPC websocket, pump.fun program logs | Every pump.fun create / trade / graduation, with slot numbers | 150-350 messages/s; measured 23-35 GB/day of download (0.7-1 TB/month), more when the market is busy |
 | GeckoTerminal `new_pools`, `trades` | DEX pools GMGN's feed does not list; first buyers of a pool (for wallet reputation); the only discovery without a GMGN key | ~5 calls/min free (measured), 30 with a free CoinGecko demo key |
 | DexScreener `tokens/v1` | Price / volume / txns for 30 tokens per call, any chain; paid profiles | 300/min documented |
 | GoPlus | Second contract check for every token (Solana and EVM; Robinhood Chain = chain 4663) | no key |
@@ -163,8 +163,11 @@ printed to the console. `python main.py --minutes 5` runs a 5-minute smoke test;
 Data (database, models, logs) lives in the `radar_data` volume and survives redeploys. A redeploy
 restarts the scanner: snapshots still being followed at that moment are set aside, not trained on.
 
-**Check before deploying:** the pump.fun feed downloads about 85 GB/day (~2.5 TB/month). Confirm
-your VPS plan's bandwidth allowance. Expect a few hundred MB of RAM.
+**Network traffic is not disk space.** The pump.fun feed streams every pump.fun transaction through
+the VPS: measured 23-35 GB of download a day (0.7-1 TB a month), more in a busy market. Almost all
+of it is discarded on arrival; only the compact snapshots are written (see Storage below). That
+traffic counts against the VPS plan's monthly bandwidth allowance, not the 20 GB disk cap. Expect a
+few hundred MB of RAM.
 
 **Storage.** Only what the learner and the dashboard use is written, and it is capped at 20 GB
 (`storage.max_gb`). Measured live: about 450 bytes per snapshot (factor names are stored once per
