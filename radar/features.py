@@ -252,6 +252,60 @@ def pump_features(tok: PumpToken, cp: int, now: float, ctx: dict) -> dict:
     return f
 
 
+def apply_gmgn(f: dict, g: dict | None, feed: dict | None, own_trades: bool) -> dict:
+    """Add GMGN's numbers (gm_*) and fill the shared factor names the launchpad's own data left
+    empty. pump.fun factors rebuilt trade by trade keep priority (`own_trades`); elsewhere GMGN's
+    holder, bundler, sniper and safety figures stand in. Everything GMGN says is also kept under its
+    own gm_* name, so the learner can weigh both."""
+    for src in (feed, g):
+        if src:
+            f.update({k: v for k, v in src.items() if not k.startswith("_")})
+    g, feed = g or {}, feed or {}
+
+    def fill(k, v):
+        if v is not None and f.get(k) is None:
+            f[k] = v
+
+    fill("dist_holders", g.get("gm_holders"))
+    fill("dist_top10_with_dev_pct", g.get("gm_top10_pct"))
+    fill("launch_dev_hold_pct", g.get("gm_dev_hold_pct"))
+    fill("launch_slot0_pct", g.get("gm_bundler_pct"))
+    fill("launch_sniper_pct", g.get("gm_sniper_hold_pct"))
+    fill("px_curve_pct", g.get("gm_progress_pct"))
+    if g.get("gm_sec_ok"):
+        fill("sec_checked", 1)
+        fill("sec_honeypot", g.get("gm_honeypot"))
+        fill("sec_tax_max", g.get("gm_tax_max"))
+        fill("sec_open_source", g.get("gm_open_source"))
+        if f.get("chain") == "solana":                 # mint / freeze authority are Solana ideas
+            rm, rf = g.get("gm_renounced_mint"), g.get("gm_renounced_freeze")
+            if rm is not None:
+                fill("sec_mintable", 1 - rm)
+            if rf is not None:
+                fill("sec_blacklist", 1 - rf)
+            if rm is not None and rf is not None:
+                fill("sec_renounced", int(rm and rf))
+        else:
+            fill("sec_blacklist", g.get("gm_blacklist"))
+            fill("sec_renounced", g.get("gm_renounced"))
+        if not f.get("px_on_curve"):
+            fill("sec_lp_locked_pct", g.get("gm_burnt_pct"))
+    # identity: reuse counts and paid promotion - take the larger of ours and GMGN's
+    for ours, theirs in (("id_img_prev_n", ("gm_image_dup_n", "gm_image_dup_feed_n")),
+                         ("id_x_prev_n", ("gm_twitter_dup_n",)), ("id_tg_prev_n", ("gm_telegram_dup_n",)),
+                         ("id_web_prev_n", ("gm_website_dup_n",)), ("id_dex_paid", ("gm_dex_paid",))):
+        vals = [v for v in [f.get(ours)] + [g.get(t, feed.get(t)) for t in theirs] if v is not None]
+        if vals:
+            f[ours] = max(vals)
+    if not f.get("id_meta_ok") and g.get("gm_ok"):
+        f["id_meta_ok"] = 1
+        f["id_has_x"], f["id_has_tg"], f["id_has_web"] = g.get("gm_has_x"), g.get("gm_has_tg"), g.get("gm_has_web")
+        f["id_socials_n"] = sum(int(bool(g.get(k))) for k in ("gm_has_x", "gm_has_tg", "gm_has_web"))
+        if g.get("gm_has_x"):
+            f["id_x_kind"] = 2 if feed.get("gm_x_is_post") else 1
+    return f
+
+
 def creator_features(tok, ctx: dict) -> dict:
     """The creator's record, learned from their earlier launches (any launchpad)."""
     s, cr = tok.seen or {}, ctx.get("creator")

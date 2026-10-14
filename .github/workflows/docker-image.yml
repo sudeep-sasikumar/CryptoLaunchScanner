@@ -1,10 +1,10 @@
-# Builds the scanner image on every push to master and publishes it to GitHub Container Registry.
+# Builds the scanner image on every push to main and publishes it to GitHub Container Registry.
 # The VPS (docker-compose.yaml) only pulls this ready-made image - nothing is built on the VPS.
 name: Docker image
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -33,6 +33,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/sudeep-sasikumar/launchradar:latest
+          tags: ghcr.io/sudeep-sasikumar/cryptolaunchscanner:latest
           build-args: APP_VERSION=${{ github.sha }}
-          labels: org.opencontainers.image.source=https://github.com/sudeep-sasikumar/LaunchRadar
+          labels: org.opencontainers.image.source=https://github.com/sudeep-sasikumar/CryptoLaunchScanner

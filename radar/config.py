@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import yaml
@@ -22,6 +23,9 @@ class Section(dict):
 
 
 def _coerce(text: str):
+    text = text.strip()
+    if re.fullmatch(r"\d{1,2}:\d{2}", text):       # a time of day; YAML would read "06:00" as the number 360
+        return text
     return yaml.safe_load(text)
 
 
@@ -64,4 +68,21 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
     port = os.environ.get("PORT", "").strip()
     if port:
         raw["dashboard"]["port"] = int(port)
+    # plain environment variables for the settings people change from the Hostinger panel
+    for env, path in ENV_SETTINGS.items():
+        val = os.environ.get(env, "").strip()
+        if val:
+            apply_overrides(raw, f"{path}={val}")
     return Config(raw)
+
+
+ENV_SETTINGS = {
+    "TELEGRAM_ENABLED": "telegram.enabled",
+    "TELEGRAM_THREAD_ID": "telegram.thread_id",
+    "TELEGRAM_OUTCOME_UPDATES": "telegram.outcome_updates",
+    "TELEGRAM_SILENT_OUTCOMES": "telegram.silent_outcomes",
+    "TELEGRAM_DAILY_SUMMARY_UTC": "telegram.daily_summary_utc",
+    "TELEGRAM_COMMANDS": "telegram.commands",
+    "CALLS_PER_HOUR": "call.max_per_hour",
+    "GMGN_WEIGHT_PER_SEC": "sources.gmgn.weight_per_sec",
+}

@@ -12,6 +12,8 @@ opinion vetoes step aside for the model (see gate()).
 """
 from __future__ import annotations
 
+import math
+
 
 def ramp(x, bad: float, good: float) -> float | None:
     """0 at `bad`, 1 at `good`, linear between (either direction). None stays None."""
@@ -37,30 +39,58 @@ def _worst(*scores) -> float | None:
     return min(known) if known else None
 
 
+def _log_ramp(x, bad: float, good: float) -> float | None:
+    """ramp() on a log10 scale - for counts that matter by order of magnitude (followers)."""
+    return None if x is None else ramp(math.log10(max(float(x), 0.0) + 1), math.log10(bad + 1), math.log10(good + 1))
+
+
+def _smart(f: dict) -> float | None:
+    """Smart money in: our own learned smart wallets, or GMGN's smart-money and KOL counts."""
+    known = [v for v in (f.get("wq_smart_n") if f.get("wq_known_share") else None,
+                         (f.get("gm_smart_n") or 0) + (f.get("gm_kol_n") or 0) if f.get("gm_ok") else None)
+             if v is not None]
+    return ramp(max(known), 0, 3) if known else None
+
+
+def _creator(f: dict) -> float | None:
+    """The creator's track record: our own (from coins we followed) first, else GMGN's launch history.
+    A serial launcher whose coins almost never graduate scores zero."""
+    if f.get("cr_prev_n"):
+        return ramp((f.get("cr_win_n") or 0) - 0.5 * (f.get("cr_dead_n") or 0), -2, 1)
+    made, ratio = f.get("gm_creator_created_n"), f.get("gm_creator_open_ratio")
+    if made is None or made <= 1:
+        return None                                    # a first launch: no record either way
+    if ratio is None:
+        return None
+    return 0.0 if made >= 20 and ratio < 0.05 else ramp(ratio, 0.0, 0.15)
+
+
 # (label shown in alerts, weight, scoring function) - weights sum to 100
 CARD = [
-    # contract safety (15) - pump.fun coins nearly always pass; still checked, like everything else
+    # contract safety (14) - pump.fun coins nearly always pass; still checked, like everything else
     ("sellable, no honeypot", 4, lambda f: _flag_ok(f.get("sec_honeypot"))),
     ("low tax",               3, lambda f: ramp(f.get("sec_tax_max"), 10, 0)),
-    ("no mint / freeze / blacklist powers", 4, lambda f: _worst(_flag_ok(f.get("sec_mintable")),
+    ("no mint / freeze / blacklist powers", 3, lambda f: _worst(_flag_ok(f.get("sec_mintable")),
                                                                  _flag_ok(f.get("sec_blacklist")))),
     ("ownership renounced",   2, lambda f: f.get("sec_renounced")),
-    ("liquidity locked",      2, lambda f: ramp(f.get("sec_lp_locked_pct"), 20, 90)),
-    # fair launch (22)
-    ("no bundle",             6, lambda f: ramp(f.get("launch_slot0_pct"), 12, 0)),
-    ("few snipers",           4, lambda f: ramp(f.get("launch_sniper_pct"), 15, 2)),
-    ("dev not dumping",       4, lambda f: ramp(f.get("launch_dev_sold_pct"), 50, 0)),
-    ("dev bag modest",        3, lambda f: ramp(f.get("launch_dev_hold_pct"), 15, 3)),
+    ("liquidity locked / burnt", 2, lambda f: ramp(f.get("sec_lp_locked_pct"), 20, 90)),
+    # fair launch (24) - the GMGN-style checks
+    ("no bundle",             5, lambda f: ramp(f.get("launch_slot0_pct"), 12, 0)),
+    ("few snipers",           3, lambda f: ramp(f.get("launch_sniper_pct"), 15, 2)),
+    ("few insiders",          4, lambda f: ramp(f.get("gm_insider_pct"), 25, 2)),
+    ("few phishing wallets",  4, lambda f: ramp(f.get("gm_phishing_pct"), 25, 2) if f.get("gm_phishing_pct") is not None
+                                           else ramp(f.get("launch_phantom_sold_pct"), 3, 0)),
+    ("dev not dumping",       3, lambda f: ramp(f.get("launch_dev_sold_pct"), 50, 0)),
+    ("dev bag modest",        2, lambda f: ramp(f.get("launch_dev_hold_pct"), 15, 3)),
     ("no coordinated buying", 3, lambda f: _worst(ramp(f.get("launch_cluster_pct"), 12, 1),
                                                   ramp(f.get("launch_same_size_share"), 0.35, 0.05))),
-    ("holders bought, not airdropped", 2, lambda f: ramp(f.get("launch_phantom_sold_pct"), 3, 0)),
-    # holder distribution (17)
-    ("top 10 not concentrated", 7, lambda f: ramp(f.get("dist_top10_with_dev_pct"), 45, 16)),
-    ("no whale",              3, lambda f: ramp(f.get("dist_top1_pct"), 10, 3)),
-    ("many holders",          4, lambda f: ramp(f.get("dist_holders"), _cp_scale(f, 6, 12), _cp_scale(f, 40, 60))),
+    # holder distribution (14)
+    ("top 10 not concentrated", 6, lambda f: ramp(f.get("dist_top10_with_dev_pct"), 45, 16)),
+    ("no whale",              2, lambda f: ramp(f.get("dist_top1_pct"), 10, 3)),
+    ("many holders",          3, lambda f: ramp(f.get("dist_holders"), _cp_scale(f, 6, 12), _cp_scale(f, 40, 60))),
     ("buyers are staying",    3, lambda f: ramp(f.get("dist_exited_share"), 0.6, 0.2)),
-    # wallet quality (12) - neutral until reputations exist
-    ("smart wallets in",      7, lambda f: None if not f.get("wq_known_share") else ramp(f.get("wq_smart_n"), 0, 3)),
+    # wallet quality (12)
+    ("smart money / KOLs in", 7, _smart),
     ("few toxic wallets",     5, lambda f: None if not f.get("wq_known_share") else ramp(f.get("wq_toxic_share"), 0.3, 0.0)),
     # demand and chart (22)
     ("buy pressure",          5, lambda f: ramp(f.get("flow_buy_share_recent"), 0.45, 0.65)),
@@ -70,16 +100,15 @@ CARD = [
                                            else ramp(f["px_slope"], -0.02, 0.02) * (0.5 + 0.5 * (f.get("px_r2") or 0))),
     ("volume building",       3, lambda f: ramp(f.get("flow_accel"), 0.4, 1.5)),
     ("liquidity vs. market cap", 2, lambda f: ramp(f.get("px_liq_per_mcap"), 0.03, 0.2)),
-    # identity (12)
+    # identity and buzz (14)
     ("has socials",           3, lambda f: None if not f.get("id_meta_ok") and not f.get("id_dex_paid")
                                            else max(ramp(f.get("id_socials_n"), 0, 2) or 0.0, float(f.get("id_dex_paid") or 0))),
-    ("own X account",         2, lambda f: None if not f.get("id_meta_ok") else (1.0 if f.get("id_x_kind") == 1 else 0.3)),
+    ("own X account",         1, lambda f: None if not f.get("id_meta_ok") else (1.0 if f.get("id_x_kind") == 1 else 0.3)),
+    ("X following",           2, lambda f: _log_ramp(f.get("gm_x_followers"), 20, 3000)),
     # a copy launched while the original is still hot is the classic trap: no credit at all
     ("original name",         3, lambda f: 0.0 if (f.get("id_name_burst_n") or 0) >= 1 else ramp(f.get("id_name_prev_n"), 4, 0)),
-    ("original image / socials", 2, lambda f: None if not f.get("id_meta_ok") else _worst(
-        ramp(f.get("id_img_prev_n") or 0, 2, 0), ramp(f.get("id_x_prev_n") or 0, 2, 0))),
-    ("creator record",        2, lambda f: None if not f.get("cr_prev_n") else ramp(
-        (f.get("cr_win_n") or 0) - 0.5 * (f.get("cr_dead_n") or 0), -2, 1)),
+    ("original image / socials", 2, lambda f: _worst(ramp(f.get("id_img_prev_n"), 2, 0), ramp(f.get("id_x_prev_n"), 2, 0))),
+    ("creator record",        3, _creator),
 ]
 NEUTRAL = 0.5
 
@@ -142,6 +171,8 @@ def gate(f: dict, cfg, learned: bool = False, final: bool = False) -> str | None
         return "someone can still mint more"
     if f.get("sec_blacklist") and not f.get("sec_renounced"):
         return "someone can freeze or blacklist holders"
+    if f.get("gm_wash"):
+        return "GMGN: wash trading detected"
     # a bonding curve always buys back; only a pool can be too thin to sell into
     if not f.get("px_on_curve") and f.get("px_liq_usd") is not None and f["px_liq_usd"] < g["min_liquidity_usd"]:
         return "liquidity too thin"
@@ -161,4 +192,13 @@ def gate(f: dict, cfg, learned: bool = False, final: bool = False) -> str | None
         return f"creator launched {f['cr_day_n']} coins in 24 h"
     if (f.get("wq_toxic_share") or 0) > 0.4:
         return "early buyers are mostly known toxic wallets"
+    if (f.get("gm_insider_pct") or 0) > g["max_insider_pct"]:
+        return f"insiders hold {f['gm_insider_pct']:.0f}%"
+    if (f.get("gm_phishing_pct") or 0) > g["max_phishing_pct"]:
+        return f"phishing wallets hold {f['gm_phishing_pct']:.0f}%"
+    if (f.get("gm_rug_ratio") or 0) > g["max_rug_ratio"]:
+        return f"GMGN rug ratio {f['gm_rug_ratio']:.2f}"
+    made, ratio = f.get("gm_creator_created_n"), f.get("gm_creator_open_ratio")
+    if made and made >= g["serial_creator_min_launches"] and (ratio or 0) < g["serial_creator_max_grad_ratio"]:
+        return f"serial launcher: {made:,.0f} coins, {(ratio or 0) * 100:.1f}% graduated"
     return None

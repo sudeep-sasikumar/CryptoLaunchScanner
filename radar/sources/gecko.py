@@ -13,23 +13,29 @@ import time
 
 log = logging.getLogger("gecko")
 
+
+def canonical_launchpad(raw: str, names: list) -> str | None:
+    """One name per launchpad whichever source reported it (see `launchpad_names` in config.yaml)."""
+    low = (raw or "").lower()
+    for needle, name in names:
+        if str(needle).lower() in low:
+            return str(name)
+    return None
+
 PUBLIC = "https://api.geckoterminal.com/api/v2"
 DEMO = "https://api.coingecko.com/api/v3/onchain"
 
 
 class Gecko:
-    def __init__(self, http, cfg, demo_key: str = ""):
-        self.http, self.cfg = http, cfg
+    def __init__(self, http, cfg, demo_key: str = "", names: list | None = None):
+        self.http, self.cfg, self.names = http, cfg, names or []
         self.base = DEMO if demo_key else PUBLIC
         self.headers = {"x-cg-demo-api-key": demo_key} if demo_key else None
         self.lim = http.limiter("gecko", cfg.calls_per_min)
         self.seen_pools: dict[str, float] = {}
 
     def launchpad(self, dex_id: str) -> str | None:
-        for needle, name in self.cfg.launchpads.items():
-            if needle in dex_id:
-                return name
-        return None
+        return canonical_launchpad(dex_id, self.names)
 
     async def new_pools(self, network: str) -> list[dict]:
         """Pools not returned before: [{chain, pool, dex, launchpad, address, name, symbol, created_ts, quote}]"""

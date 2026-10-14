@@ -122,7 +122,9 @@ class PumpToken:
         self.snapshots = 0
         self.tainted = False                  # the stream dropped while this token was live
         self.meta: dict | None = None         # filled by the metadata fetch
-        self.security: dict | None = None     # filled by the contract check
+        self.security: dict | None = None     # filled by the contract check (GoPlus, when GMGN is off)
+        self.gm: dict | None = None           # GMGN's token page as factors (latest)
+        self.gm_feed: dict | None = None      # what GMGN's launch feed said (socials, reuse)
         self.meta_requested = False
         self.seen: dict = {}                  # name / symbol / uri counts at creation
         self.called = False
@@ -371,6 +373,9 @@ class DexToken:
     misses: int = 0
     path: list = field(default_factory=list)        # [seconds since launch, price multiple, 5-min volume, buys, sells]
     t_half: float | None = None                     # seconds from the top to half of it
+    gm: dict | None = None                          # GMGN's token page as factors (latest)
+    gm_feed: dict | None = None                     # what GMGN's launch feed said (socials, reuse)
+    on_curve: bool | None = None                    # still on a bonding curve (from the launch feed)
 
     def on_pair(self, ts: float, pair: dict) -> list[tuple[Label, str]]:
         try:

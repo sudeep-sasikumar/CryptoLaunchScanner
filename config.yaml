@@ -13,8 +13,8 @@ sources:
     ws_url: wss://api.mainnet-beta.solana.com    # free public RPC; SOLANA_WS_URL in .env overrides (e.g. a Helius key)
     rpc_url: https://api.mainnet-beta.solana.com
     stall_s: 30              # no message for this long = reconnect
-  gecko:                     # every other launchpad, via GeckoTerminal "new pools" (free)
-    enabled: true
+  gecko:                     # new DEX pools via GeckoTerminal (free): launches GMGN's feed does not list, and the
+    enabled: true            # only discovery source when no GMGN key is set
     calls_per_min: 5         # measured free limit (burst of 6, then ~1 per 12 s); 25 with COINGECKO_DEMO_API_KEY
     # poll_s is used on the free limit, fast_poll_s when the demo key is set
     networks:
@@ -22,34 +22,59 @@ sources:
       robinhood: {poll_s: 60,  fast_poll_s: 20}                                      # PONS, StonkBrokers, Uniswap v4 ...
       bsc:       {poll_s: 180, fast_poll_s: 45, only_launchpads: true}               # four.meme ...
       base:      {poll_s: 180, fast_poll_s: 45, only_launchpads: true}               # Clanker, Zora, Virtuals ...
-    # GeckoTerminal dex id (substring match) -> launchpad name shown in alerts and learned as a feature
-    launchpads:
-      pons: pons
-      stonk: stonks
-      launchlab: launchlab        # Raydium LaunchLab: LetsBonk, StonkFun
-      meteora-dbc: meteora-dbc    # Believe, Bags, ...
-      moonshot: moonshot
-      moonit: moonit
-      boop: boop
-      heaven: heaven
-      four-meme: four-meme
-      fourmeme: four-meme
-      clanker: clanker
-      zora: zora
-      virtuals: virtuals
-      bankr: bankr
-      hoodit: hoodit
-      frontier-fun: frontier-fun
-      o1-launchpad: o1
-      uniswap-pools-trade: pools-trade
-      flaunch: flaunch
-      sunpump: sunpump
     # dex ids that are bonding curves (liquidity held by the launchpad's program until it graduates)
     curve_dexes: [launchlab, meteora-dbc, pons-v2, four-meme, fourmeme, moonshot, boop, heaven, stonk, sunpump]
+  # one name per launchpad, whichever source reported it (GeckoTerminal dex id or GMGN platform name;
+  # case-insensitive substring match, first match wins). Shown in alerts and learned as a factor.
+  launchpad_names:
+    - [pons, pons]
+    - [letsbonk, letsbonk]
+    - [bonkers, letsbonk]
+    - [launchlab, launchlab]          # Raydium LaunchLab, also used by StonkFun
+    - [ray_launchpad, launchlab]
+    - [meteora-dbc, meteora-dbc]      # Meteora dynamic bonding curve: Believe, Bags, Jupiter Studio ...
+    - [meteora_virtual_curve, meteora-dbc]
+    - [bags, bags]
+    - [believe, believe]
+    - [jup_studio, jupiter-studio]
+    - [moonshot, moonshot]
+    - [moonit, moonshot]
+    - [boop, boop]
+    - [heaven, heaven]
+    - [stonk, stonks]
+    - [four, four.meme]
+    - [flap, flap]
+    - [clanker, clanker]
+    - [zora, zora]
+    - [bankr, bankr]
+    - [virtuals, virtuals]
+    - [flaunch, flaunch]
+    - [klik, klik]
+    - [hoodit, hoodit]
+    - [frontier-fun, frontier-fun]
+    - [longxyz, longxyz]
+    - [circus, circus]
+    - [sunpump, sunpump]
+    - [uniswap-pools-trade, pools-trade]
   dexscreener:
     calls_per_min: 200       # documented limit 300
     poll_s: 15               # price / volume snapshot cadence for tokens younger than 15 minutes ...
     old_poll_s: 30           # ... and for older ones
+  gmgn:                      # GMGN OpenAPI (GMGN_API_KEY): holders, insiders, bundlers, phishing, snipers, dev,
+    enabled: true            # smart money / KOLs, socials, contract safety - and new launches on every launchpad
+    weight_per_sec: 5        # free plan 5, Plus 20, Pro 50 (token calls weigh 1, the launch feed 2)
+    feed_limit: 30           # newest launches fetched per poll
+    max_age_s: 600           # launches older than this when first seen are ignored
+    # which launchpads to watch per chain (GMGN's names); pump.fun on Solana is read from the chain itself,
+    # its feed entries only add socials (X followers, TG calls, reused links)
+    chains:
+      sol:       {poll_s: 8,  platforms: [letsbonk, bonkers, bags, believe, moonshot_app, Moonshot, boop, ray_launchpad,
+                                          meteora_virtual_curve, heaven, jup_studio, xstocks, liquid, surge, anoncoin,
+                                          wendotdev, sugar, token_mill, trendsfun, trends_fun, memoo, bankr, zora]}
+      sol_pump:  {poll_s: 10, chain: sol, socials_only: true, platforms: [Pump.fun, pump_mayhem, pump_agent, pump_mayhem_agent]}
+      robinhood: {poll_s: 10, platforms: [pons_v2, pons, flap, bankr, clanker, longxyz, circus]}
+      bsc:       {poll_s: 10, platforms: [fourmeme, fourmeme_agent, bn_fourmeme, four_xmode_agent, flap, flap_stocks, clanker, lunafun]}
+      base:      {poll_s: 15, platforms: [clanker, bankr, flaunch, zora, zora_creator, baseapp, basememe, virtuals_v2, klik]}
   rugcheck: {enabled: true, calls_per_min: 12}     # Solana holders / insiders / risk flags (limit 15)
   goplus:   {enabled: true, calls_per_min: 25}     # honeypot / tax / owner / mint / freeze checks, all chains incl. Solana
   metadata: {enabled: true, concurrency: 8, timeout_s: 6, image_hash: true, telegram_members: true}
@@ -113,6 +138,11 @@ gates:                       # one list for every launchpad
   max_dev_sold_pct: 60       # (*) share of the dev's own bag already sold
   max_drawdown_pct: 55       # (*) below the high so far
   max_creator_launches_24h: 6   # (*)
+  max_insider_pct: 30        # (*) GMGN: supply held by insider (rat trader) wallets
+  max_phishing_pct: 30       # (*) GMGN: supply held by phishing (entrapment) wallets - tokens sent, not bought
+  max_rug_ratio: 0.6         # (*) GMGN's rug score (0-1)
+  serial_creator_min_launches: 50   # (*) a creator with at least this many coins ...
+  serial_creator_max_grad_ratio: 0.05   # (*) ... of which fewer than this share graduated = a coin farm
 
 # ---------------------------------------------------------------- self-learning
 learn:
@@ -139,10 +169,16 @@ storage:
     stale: 120               # ... and any wallet / creator not seen for this long
     seen: 10                 # name / symbol / image / social counters for uniqueness factors
 
+# Each of these can also be set from the environment (Hostinger Docker Manager), named in brackets.
 telegram:
-  enabled: true
-  outcome_updates: true      # reply under each call when it hits 2x / stops out
-  daily_summary_utc: "06:00"
+  enabled: true              # [TELEGRAM_ENABLED]
+  # bot token [TELEGRAM_BOT_TOKEN] and chat id(s) [TELEGRAM_CHAT_ID, comma-separated for several] come from .env
+  thread_id: null            # [TELEGRAM_THREAD_ID] post into one topic of a forum group
+  outcome_updates: true      # [TELEGRAM_OUTCOME_UPDATES] reply under each call when it hits 2x / stops out
+  silent_outcomes: true      # [TELEGRAM_SILENT_OUTCOMES] outcome replies arrive without a notification sound
+  daily_summary_utc: "06:00" # [TELEGRAM_DAILY_SUMMARY_UTC] "off" to disable
+  commands: false            # [TELEGRAM_COMMANDS] answer /status /calls /stats /help in the chat. Needs a bot of
+                             # its own: a bot that another app (e.g. Ignition & Coil) already polls cannot do both
 
 dashboard:
   enabled: true

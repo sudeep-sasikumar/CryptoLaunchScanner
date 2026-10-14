@@ -28,9 +28,11 @@ lets it learn from the runners it missed and the rugs it avoided.
 model (with the launchpad as one of its factors). pump.fun coins get the same contract-safety checks
 as everything else; other launchpads get the same launch-fairness and demand factors as pump.fun.
 What differs is only how much can be seen: pump.fun is read trade by trade from the chain; other
-launchpads through GeckoTerminal (found 1-2 minutes after launch, so their 1-minute snapshot is
-taken when first seen), DexScreener snapshots every 15 s, their pool's trade list, and GoPlus /
-RugCheck holder data. A factor that cannot be measured for a launchpad scores neutral.
+launchpads arrive through GMGN's launch feed seconds after creation, are priced every 15 s via
+DexScreener, and get their holder picture from GMGN. Every token, pump.fun included, also gets
+GMGN's token page at each snapshot: holders, top 10, dev, insiders, bundlers, phishing wallets,
+snipers, smart money, KOLs, X followers, contract safety. A factor that cannot be measured for a
+launchpad scores neutral.
 
 ## 2. What "a runner" means here
 
@@ -43,30 +45,32 @@ Price is averaged over 15-second bars, so a single freak trade cannot fake a 2x.
 
 | # | Your factor | How the scanner measures it |
 |---|---|---|
-| 1 | No bundles | Supply bought **in the creation slot** by non-dev wallets (`launch_slot0_*`), plus later same-slot buying clusters and identical-size buys (`launch_cluster_pct`, `launch_same_size_share`). Vetoed while those wallets still hold over 25% of supply. |
-| 2 | Few snipers | Buys in the first 5 slots (~2 s) after creation (`launch_sniper_*`), and whether they still hold. |
-| 3 | Few phishing wallets | Tokens sold by wallets that **never bought** (they arrived by transfer): `launch_phantom_sold_pct`. RugCheck insider networks on candidates. |
+| 1 | No bundles | pump.fun: supply bought **in the creation slot** by non-dev wallets (`launch_slot0_pct`), later same-slot clusters and identical-size buys. Elsewhere: GMGN's bundler share (`gm_bundler_pct`), which is also kept for pump.fun coins. Vetoed while bundle/sniper wallets still hold over 25%. |
+| 2 | Few snipers | pump.fun: buys in the first 5 slots (~2 s) and whether they still hold. Elsewhere: GMGN's top-70 sniper holding (`gm_sniper_hold_pct`) and sniper count. |
+| 3 | Few phishing wallets | GMGN's phishing ("entrapment") share: supply held by wallets that received tokens instead of buying them (`gm_phishing_pct`). Scored, and vetoed above 30%. pump.fun also keeps its own count of tokens sold by wallets that never bought. |
 | 4 | Fair launch | 1-3 together, plus dev's own buy and time to first outside buy. |
 | 5, 6 | Unique product / flywheel / utility / viral meme | Optional Claude rating of name, ticker, description, links: `llm_viral`, `llm_original`, `llm_utility`, `llm_effort`. Copycats launched *after* the coin (`id_name_after_n`) measure spread directly. |
-| 7 | Smart wallets | **Learned, not bought.** Every finished token credits its first 40 buyers; wallets that are early in winners far more than average, with realised profit, become smart (`wq_smart_n`, `wq_smart_holding_n`). |
-| 8 | Clean contract | Every token, pump.fun included: GoPlus honeypot / transfer fee or tax / mint, freeze and blacklist powers / renounced (`sec_*`), on Solana and EVM chains; RugCheck on Solana (`rc_*`). Safety vetoes, and no call at all unless the check answered. |
+| 7 | Smart wallets | Two views: GMGN's smart-money and KOL counts (`gm_smart_n`, `gm_kol_n`), and the scanner's **own learned** smart wallets - every finished token credits its first 40 buyers; wallets early in winners far more than average, with realised profit, become smart (`wq_smart_n`). |
+| 8 | Clean contract | Every token, pump.fun included: GMGN security (honeypot, tax, renounced, blacklist, verified; mint and freeze authority on Solana) plus GoPlus as a second, independent check. Safety vetoes, and no call unless a check answered. |
 | 9 | Few same-name tokens | Every name and ticker ever seen is counted (`id_name_prev_n`, `id_sym_prev_n`, burst in last 10 min). |
-| 10 | Image not reused | Perceptual hash of the image; counts earlier tokens with the same picture (`id_img_prev_n`). Same for metadata link. |
-| 11, 12 | X profile / TG group | From token metadata: present or not, own account vs. a random post, reused by earlier tokens, Telegram member count. |
-| 13 | LP burned | GoPlus LP-locked % on EVM. On pump.fun the curve holds liquidity until graduation (burned by design). |
-| 14 | Dev not sold | `launch_dev_sold_pct`, `launch_dev_hold_pct`. Vetoed when the dev has sold most of the bag. |
-| 15, 16 | Top-10 %, distribution | Rebuilt from every trade: top 1/5/10 %, concentration index, median holder, holders per minute. |
+| 10 | Image not reused | Our own perceptual hash of the image and GMGN's "avatar reused" count; also reused X / Telegram / website links (`gm_*_dup_n`). |
+| 11, 12 | X profile / TG group | Present or not, the coin's own account or someone's post, reused by earlier tokens, Telegram members, and GMGN's X follower count. |
+| 13 | LP burned | GMGN burn / lock share (`gm_burnt_pct`, e.g. "Burnt 95%"); on a bonding curve the launchpad holds the liquidity, which counts as locked. |
+| 14 | Dev not sold | pump.fun: share of the dev's own bag sold (`launch_dev_sold_pct`). Every launchpad: GMGN dev holding and whether the dev has closed the position (`gm_dev_hold_pct`, `gm_dev_closed`). |
+| 15, 16 | Top-10 %, distribution | pump.fun: rebuilt from every trade (top 1/5/10 %, concentration, median holder). Everywhere: GMGN holders and top 10, bot and fresh-wallet shares (`gm_bot_pct`, `gm_fresh_pct`). |
 | 17 | Healthy holder growth | New buyers per minute, share of buyers who already left, repeat buyers. |
-| 18 | Insider wallets | Creation-slot buyers, phantom sellers, RugCheck insider graph. |
-| 19 | Social chatter | Partly: Telegram members, DexScreener paid profile / boosts, copycat count. **Live X mention counts need a paid X API and are not included.** |
-| 20 | Rug wallets | Learned: wallets that keep buying in the creation slot of coins that go nowhere, or keep dumping big bags (`wq_toxic_n`). Creator history (`cr_*`). |
+| 18 | Insider wallets | GMGN's insider ("rat trader") share (`gm_insider_pct`), scored and vetoed above 30%; creation-slot buyers; RugCheck insider graph when available. |
+| 19 | Social chatter | GMGN: X followers, Telegram call count, call-outs, KOL holders, DexScreener paid profile / boosts / CTO; copycats launched after the coin. Live X mention counts are not available. |
+| 20 | Rug wallets | Learned toxic wallets (`wq_toxic_n`) and creator history: ours, plus GMGN's count of coins this creator made and how many graduated. A creator with 50+ coins and under 5% graduating is vetoed as a coin farm. |
 | 21 | Chart | Drawdown from high, trend slope and steadiness, higher lows, returns over 30 s / 60 s. Full price path stored per token. |
 | 22 | Volume | Buy/sell split, acceleration, volume vs. mcap, trade sizes, last-minute share. |
 | 23 | How failures dump | Every tracked token is classified at the end: dev dump, bundle dump, whale dump, fast fade, slow bleed, never started - with time-to-peak, time top→half, who sold. Dashboard tab "How launches die". |
 
-Added beyond your list: market mood (launches per minute, recent hit rate, graduations per hour),
-time of day, quote currency (pump.fun coins can now be paired with SOL, USDC, PUMP or other coins),
-mayhem / cashback / holder-reward modes, creator's launch count in 24 h, bonding-curve progress.
+Added beyond your list: GMGN's rug ratio and wash-trading flag (wash trading is a safety veto),
+dev funding age, private-vault holdings, page visits, "hot" level, DexScreener ad / trending
+payments; market mood (launches per minute, recent hit rate, graduations per hour), time of day,
+quote currency (pump.fun coins can be paired with SOL, USDC, PUMP or other coins), mayhem /
+cashback / holder-reward modes, creator's launch count in 24 h, bonding-curve progress.
 
 ## 4. How it improves itself
 
@@ -86,19 +90,32 @@ mayhem / cashback / holder-reward modes, creator's launch count in 24 h, bonding
 Until the first model is promoted, the hand-weighted scorecard in `radar/scoring.py` decides and the
 scanner calls the top 2% of scores from the last 24 h.
 
-## 5. Data sources (all free; verified live on 2026-10-14)
+## 5. Data sources (verified live on 2026-10-14)
 
 | Source | Used for | Limit seen |
 |---|---|---|
+| **GMGN OpenAPI** (free key) | New launches on every launchpad (`/v1/trenches`, seconds after creation); per token: holders, top 10, dev, insiders, bundlers, phishing, snipers, bots, fresh wallets, smart money, KOLs, creator history, socials, X followers, TG calls, DexScreener payments, contract safety, LP burn | free plan 5 weight/s (token call 1, feed 2); the scanner needs about 1.5/s |
 | Solana RPC websocket, pump.fun program logs | Every pump.fun create / trade / graduation, with slot numbers | ~350 messages/s, ~85 GB/day download on the public node |
-| GeckoTerminal `new_pools`, `trades` | Discovering launches off pump.fun (Solana, Robinhood Chain, BNB, Base); wallet-level trades | ~5 calls/min free (measured), 30 with a free CoinGecko demo key |
+| GeckoTerminal `new_pools`, `trades` | DEX pools GMGN's feed does not list; first buyers of a pool (for wallet reputation); the only discovery without a GMGN key | ~5 calls/min free (measured), 30 with a free CoinGecko demo key |
 | DexScreener `tokens/v1` | Price / volume / txns for 30 tokens per call, any chain; paid profiles | 300/min documented |
-| GoPlus | EVM contract safety (Robinhood Chain = chain 4663) | no key |
-| RugCheck | Solana holders, insiders, risk flags | 15/min |
+| GoPlus | Second contract check for every token (Solana and EVM; Robinhood Chain = chain 4663) | no key |
+| RugCheck | Solana holders, insiders, risk flags when GMGN has no answer | 15/min (was down during testing) |
 | Token metadata + t.me | Socials, image, Telegram members | - |
 
-PONS is on Robinhood Chain (GeckoTerminal dex ids `pons-v2`, `pons-dot-family`); StonkFun deploys
-through Raydium LaunchLab on Solana. Other launchpads are mapped in `config.yaml` → `launchpads`.
+PONS is on Robinhood Chain (GMGN platforms `pons_v2`, `pons`); StonkFun deploys through Raydium
+LaunchLab on Solana. Which launchpads are watched per chain: `config.yaml` → `sources.gmgn.chains`;
+one name per launchpad across sources: `sources.launchpad_names`.
+
+**Getting the GMGN key (free, about 2 minutes):**
+1. Make a key pair on this PC (read-only use never needs the private half):
+   `openssl genpkey -algorithm ed25519 -out gmgn_private.pem`, then
+   `openssl pkey -in gmgn_private.pem -pubout`
+2. Sign in at https://gmgn.ai/ai, open the API application form, paste the public key (the
+   `-----BEGIN PUBLIC KEY-----` block) and submit. Type the address yourself: look-alike GMGN
+   domains exist.
+3. Copy the API key it shows into `GMGN_API_KEY` (`.env` on this PC, Docker Manager on the VPS).
+4. Keep `gmgn_private.pem` private and out of git; it only matters for trading, which this
+   scanner never does.
 
 ## 6. Run it on this PC
 
@@ -115,15 +132,31 @@ printed to the console. `python main.py --minutes 5` runs a 5-minute smoke test;
 
 ## 7. Running on the VPS (same pattern as Ignition & Coil)
 
-1. Repository `LaunchRadar`, branch `master`. Every push runs the tests, builds the image and
-   publishes `ghcr.io/sudeep-sasikumar/launchradar:latest` (GitHub Actions).
-2. On GitHub: Packages → launchradar → make it public, so the VPS can pull it without a login
-   (the same as `ignitionandcoil`).
+1. Repository [`CryptoLaunchScanner`](https://github.com/sudeep-sasikumar/CryptoLaunchScanner),
+   branch `main`. Every push runs the tests, builds the image and publishes
+   `ghcr.io/sudeep-sasikumar/cryptolaunchscanner:latest` (GitHub Actions).
+2. On GitHub: your profile → Packages → `cryptolaunchscanner` → Package settings → make it
+   public, so the VPS can pull it without a login (the same as `ignitionandcoil`). Needed once.
 3. Hostinger → VPS → Docker Manager → Compose → Compose from URL:
-   `https://raw.githubusercontent.com/sudeep-sasikumar/LaunchRadar/master/docker-compose.yaml`,
-   project name `launch-radar`.
-4. Enter `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `DASHBOARD_PASSWORD` (and any optional keys
-   listed at the top of `docker-compose.yaml`), then Deploy.
+   `https://raw.githubusercontent.com/sudeep-sasikumar/CryptoLaunchScanner/main/docker-compose.yaml`,
+   project name `crypto-launch-scanner`.
+4. Enter the environment variables, then Deploy:
+
+   | Variable | Needed | What |
+   |---|---|---|
+   | `GMGN_API_KEY` | strongly recommended | see "Getting the GMGN key" above |
+   | `TELEGRAM_BOT_TOKEN` | for alerts | from @BotFather; the Ignition & Coil bot works for alerts |
+   | `TELEGRAM_CHAT_ID` | for alerts | your chat id; several chats comma-separated; a group id starts with `-100` |
+   | `DASHBOARD_PASSWORD` | for the dashboard | a long password of your choice |
+   | `TELEGRAM_THREAD_ID` | optional | post into one topic of a forum group |
+   | `TELEGRAM_OUTCOME_UPDATES` | optional | `true`/`false`: reply under each call when it hits 2x or stops out (default true) |
+   | `TELEGRAM_SILENT_OUTCOMES` | optional | `true`/`false`: those replies arrive without a sound (default true) |
+   | `TELEGRAM_DAILY_SUMMARY_UTC` | optional | e.g. `06:00`, or `off` |
+   | `TELEGRAM_COMMANDS` | optional | `true` to answer `/status` `/calls` `/stats` - needs a bot of its own (Ignition & Coil already reads its bot's messages) |
+   | `CALLS_PER_HOUR` | optional | most calls in one hour (default 10) |
+   | `GMGN_WEIGHT_PER_SEC` | optional | 5 on GMGN's free plan, 20 Plus, 50 Pro |
+   | `SOLANA_WS_URL`, `COINGECKO_DEMO_API_KEY`, `ANTHROPIC_API_KEY`, `DOMAIN` | optional | see `docker-compose.yaml` |
+
 5. Dashboard: `https://srv1479428.hstgr.cloud/radar/` - it shares the hostname and certificate
    that Ignition & Coil already uses. Ignition & Coil keeps everything outside `/radar/`.
 
@@ -168,13 +201,17 @@ Override without editing the file: `RADAR_OVERRIDES="call.top_pct=1;label.target
 ## 9. Known limits
 
 - **First day = scorecard only.** The hand weights are a starting opinion, not a tested edge.
-- **Off-pump.fun launches are seen 1-2 minutes late** and less deeply (15-second snapshots and the
-  pool's last 300 trades, not every trade): dev selling and airdropped-holder checks exist only for
-  pump.fun and score neutral elsewhere. On the free GeckoTerminal limit a busy Solana minute can hide
-  some non-pump pools; the free CoinGecko demo key fixes most of that.
-- **RugCheck can be unavailable** (it returned errors for every token during the last test run);
-  Solana holder figures for non-pump tokens then score neutral.
-- **No X/Twitter mention counts** (paid API).
+- **GMGN is the backbone for launchpads other than pump.fun.** Without `GMGN_API_KEY` they are
+  found through GeckoTerminal 1-2 minutes late, and their insider, phishing, dev and holder figures
+  mostly score neutral. GMGN's free plan (5 weight/s) is enough for the default settings; the
+  public demo key is shared by everyone and was rate-limited almost constantly in testing, so it
+  is not used.
+- **GMGN's figures are GMGN's.** Its insider, bundler and phishing labels are its own wallet
+  classification; they are stored under `gm_*` names so the learner can test how much they matter.
+- **Off-pump.fun coins are followed by 15-second price snapshots**, not trade by trade; a dev's
+  exact share sold is visible only on pump.fun (elsewhere: holding / closed from GMGN).
+- **RugCheck can be unavailable** (it returned errors for every token during testing).
+- **No live X mention counts** (paid API). X followers and Telegram call counts come from GMGN.
 - **The public Solana RPC can drop.** Tokens live during a drop are set aside and never trained on.
   A free Helius key in `SOLANA_WS_URL` is steadier.
 - **A restart loses open tracking.** Unfinished snapshots are set aside, open calls marked expired.
@@ -194,9 +231,9 @@ radar/features.py        all factors
 radar/scoring.py         vetoes + day-one scorecard
 radar/model.py           learner: time-split test, promotion, threshold, lift tables
 radar/wallets.py         smart / toxic wallet and creator reputation
-radar/sources/           pump.fun stream + decoder, GeckoTerminal, DexScreener, GoPlus, RugCheck, metadata
+radar/sources/           pump.fun stream + decoder, GMGN, GeckoTerminal, DexScreener, GoPlus, RugCheck, metadata
 radar/llm.py             optional Claude meme / narrative rating
-radar/notify.py          Telegram
+radar/notify.py          Telegram (alerts, outcome replies, daily summary, optional commands)
 radar/web/               dashboard
-tests/                   32 tests
+tests/                   36 tests
 ```

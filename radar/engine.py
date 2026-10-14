@@ -19,13 +19,14 @@ from concurrent.futures import ProcessPoolExecutor
 
 from . import model as learner
 from .db import DB
-from .features import dex_features, norm_name, pump_features, trade_features
+from .features import apply_gmgn, dex_features, norm_name, pump_features, trade_features
 from .http import Http
 from .llm import Narrator
-from .notify import Telegram, call_text, esc, money
+from .notify import Telegram, call_text, esc, message_ids, money
 from .scoring import gate, prior_score
 from .sources.dexscreener import SYSTEM, DexScreener, QuoteBook
-from .sources.gecko import Gecko
+from .sources.gecko import Gecko, canonical_launchpad
+from .sources.gmgn import OURS, Gmgn, from_trenches
 from .sources.metadata import Metadata
 from .sources.pump_stream import PumpStream
 from .sources.security import Security
@@ -45,12 +46,14 @@ class Engine:
         src = cfg.sources
         self.dexs = DexScreener(self.http, src.dexscreener.calls_per_min)
         self.quotes = QuoteBook(self.http, self.dexs, src.pump.rpc_url, self.db)
-        self.gecko = Gecko(self.http, src.gecko, cfg.secret("COINGECKO_DEMO_API_KEY"))
+        self.gecko = Gecko(self.http, src.gecko, cfg.secret("COINGECKO_DEMO_API_KEY"), list(src.launchpad_names))
         self.security = Security(self.http, src)
         self.metadata = Metadata(src.metadata, self.db)
         self.narrator = Narrator(src.llm, cfg.secret("ANTHROPIC_API_KEY"), self.db)
+        self.gmgn = Gmgn(src.gmgn, cfg.secret("GMGN_API_KEY"))
         self.telegram = Telegram(cfg.telegram, cfg.secret("TELEGRAM_BOT_TOKEN"), cfg.secret("TELEGRAM_CHAT_ID"), self.db)
         self.rep = Reputation(self.db, cfg.learn.wallets)
+        self.telegram.on_command = self.command
         self.stream = PumpStream(src.pump.ws_url, src.pump.stall_s, self.on_pump_event, self.on_gap)
 
         self.pump: dict[str, PumpToken] = {}
@@ -105,6 +108,9 @@ class Engine:
             loops.append(self.stream.run())
         if self.cfg.sources.gecko.enabled:
             loops += [self.discover_loop(net) for net in self.cfg.sources.gecko.networks]
+        if self.gmgn.enabled:
+            loops += [self.gmgn_feed_loop(name) for name in self.cfg.sources.gmgn.chains]
+        loops.append(self.telegram.poll_commands())
         if self.cfg.dashboard.enabled:
             from .web.server import serve
             loops.append(serve(self))
@@ -122,6 +128,7 @@ class Engine:
             await self.http.close()
             await self.metadata.close()
             await self.telegram.close()
+            await self.gmgn.close()
 
     async def _guard(self, coro) -> None:
         """A loop that dies takes the scanner's eyes with it: log loudly instead of failing silently."""
@@ -144,7 +151,7 @@ class Engine:
             if not tok.meta_requested and tok.n_buys >= 6 and self.cfg.sources.metadata.enabled:
                 tok.meta_requested = True
                 self.spawn(self._fetch_meta(tok))
-                self.spawn(self._fetch_safety(tok))
+                self.spawn(self._fetch_safety(tok))         # GoPlus: a second, independent contract check
         elif kind == "create":
             self._on_create(e, slot)
         elif kind == "complete":
@@ -353,7 +360,8 @@ class Engine:
         else:
             text = f"❌ <b>{esc(tok.symbol)}</b> fell {(1 - self.cfg.label.stop) * 100:.0f}% after the call ({mins}); best was {lb.peak:.2f}x"
         await self.telegram.send(text, dedupe=f"outcome:{lb.call_id}:{ev}", kind="outcome",
-                                 reply_to=r["tg_msg_id"] if r else None)
+                                 reply_to=message_ids(r["tg_msg_id"]) if r else None,
+                                 silent=bool(self.cfg.telegram.get("silent_outcomes")))
 
     # ------------------------------------------------------------------ snapshots
     def _pump_snapshot(self, tok: PumpToken, cp: int, now: float) -> None:
@@ -383,19 +391,33 @@ class Engine:
     async def _dex_snapshot(self, tok: DexToken, cp: int) -> None:
         """Enrich (contract and holder checks, trade list, profile), then record. Runs as its own task."""
         solana = tok.chain == "solana"
-        jobs = [self.security.goplus_solana(tok.address) if solana else self.security.goplus(tok.chain, tok.address)]
-        if solana:
-            jobs.append(self.security.rugcheck(tok.address))       # holders, insiders, creator - refreshed per snapshot
+        if self.gmgn.enabled:
+            # GMGN: holders, insiders, bundlers, phishing, snipers, dev, smart money and contract safety in one go
+            jobs = [self._gm_fetch(tok)]
+        else:
+            jobs = [self.security.goplus_solana(tok.address) if solana else self.security.goplus(tok.chain, tok.address)]
+            if solana:
+                jobs.append(self.security.rugcheck(tok.address))   # holders, insiders, creator - refreshed per snapshot
+        n_sec = len(jobs)
         want_trades = tok.trades is None and not self.gecko.busy() and tok.pool
         if want_trades:
-            jobs.append(self.gecko.trades(tok.chain, tok.pool))
+            jobs.append(self.gecko.trades(tok.chain, tok.pool))     # first buyers: bundles and wallet reputation
         res = await asyncio.gather(*jobs, return_exceptions=True)
-        for r in res[:2 if solana else 1]:
-            if isinstance(r, dict):
-                tok.security = {**(tok.security or {}), **r}
+        if not self.gmgn.enabled:
+            for r in res[:n_sec]:
+                if isinstance(r, dict):
+                    tok.security = {**(tok.security or {}), **r}
+        elif not (tok.gm or {}).get("gm_sec_ok") and not (tok.security or {}).get("sec_checked"):
+            # GMGN busy or not indexed yet: fall back to GoPlus (+ RugCheck on Solana) for this snapshot
+            fb = [self.security.goplus_solana(tok.address) if solana else self.security.goplus(tok.chain, tok.address)]
+            if solana:
+                fb.append(self.security.rugcheck(tok.address))
+            for r in await asyncio.gather(*fb, return_exceptions=True):
+                if isinstance(r, dict):
+                    tok.security = {**(tok.security or {}), **r}
         if want_trades and isinstance(res[-1], list) and res[-1]:
             tok.trades = trade_features(res[-1], tok.address)
-        sec = tok.security or {}
+        sec = {**(tok.security or {}), "_creator": (tok.gm or {}).get("_gm_creator") or (tok.security or {}).get("_creator")}
         if tok.meta is None and self.cfg.sources.metadata.enabled:
             # Solana tokens publish a metadata document like pump.fun coins do; otherwise the DexScreener profile
             if sec.get("_uri"):
@@ -413,9 +435,12 @@ class Engine:
         entries = list((tok.trades or {}).get("entries", {}))
         ctx["wq"] = self.rep.summarize(entries) if entries else None
         ctx["creator"] = self.rep.creator(tok.seen["creator"]) if tok.seen.get("creator") else None
-        ctx["on_curve"] = any(d in tok.dex for d in self.cfg.sources.gecko.curve_dexes)
+        progress = (tok.gm or {}).get("gm_progress_pct")
+        ctx["on_curve"] = (progress < 99.9) if progress is not None else (
+            tok.on_curve if tok.on_curve is not None else any(d in tok.dex for d in self.cfg.sources.gecko.curve_dexes))
         self._paid_flags(tok)
         f = dex_features(tok, cp, now, ctx)
+        apply_gmgn(f, tok.gm, tok.gm_feed, own_trades=False)
         self._record(tok, cp, now, f, tok.price)
 
     def _record(self, tok, cp: int, now: float, f: dict, price: float) -> None:
@@ -438,8 +463,16 @@ class Engine:
         tok.labels.append(lb)
         tok.snapshots += 1
         self.counts["snapshots"] += 1
-        self.priors[ALL].append((now, prior))
         self._save_token(tok, now)
+        if isinstance(tok, PumpToken) and self.gmgn.enabled:
+            # the trade-stream factors are frozen at this second; GMGN's view of the token is added
+            # as soon as it answers (about a second), then the call decision is made
+            self.spawn(self._enrich_pump(tok, lb, snap_id, f, now))
+            return
+        self.priors[ALL].append((now, prior))
+        self._maybe_consider(tok, lb, snap_id, f, prior, prob, why_not, now)
+
+    def _maybe_consider(self, tok, lb: Label, snap_id: int, f: dict, prior: float, prob, why_not, now: float) -> None:
         if tok.called or why_not:
             return
         kind, cut = self.threshold(now)
@@ -448,15 +481,42 @@ class Engine:
         if value is not None and value >= near:
             self.spawn(self._consider(tok, lb, snap_id, f, now))
 
+    async def _gm_fetch(self, tok) -> dict | None:
+        """GMGN's numbers for a token; contract safety is fetched once, the rest refreshed each time."""
+        if not self.gmgn.enabled:
+            return None
+        address = tok.mint if isinstance(tok, PumpToken) else tok.address
+        try:
+            g = await asyncio.wait_for(
+                self.gmgn.token(tok.chain, address, with_security=not (tok.gm or {}).get("gm_sec_ok")), 10)
+        except asyncio.TimeoutError:
+            g = None
+        if g:
+            tok.gm = {**(tok.gm or {}), **g}
+        return tok.gm
+
+    async def _enrich_pump(self, tok: PumpToken, lb: Label, snap_id: int, f: dict, t0: float) -> None:
+        g = await self._gm_fetch(tok)
+        apply_gmgn(f, g, tok.gm_feed, own_trades=True)
+        prior, _, _ = prior_score(f)
+        m = self.models[ALL]
+        prob = m.predict(f) if m is not None else None
+        why_not = gate(f, self.cfg, learned=m is not None)
+        fkeys, packed = self.db.pack(f)
+        self.db.execute("UPDATE snapshots SET fkeys=?, features=?, prior=?, prob=?, gate=? WHERE id=?",
+                        (fkeys, packed, prior, prob, why_not, snap_id))
+        self.priors[ALL].append((t0, prior))
+        if not tok.tainted and not lb.done:
+            self._maybe_consider(tok, lb, snap_id, f, prior, prob, why_not, t0)
+
     async def _consider(self, tok, lb: Label, snap_id: int, f: dict, t0: float) -> None:
         """Slow pre-call checks on a near-miss or better, then the final decision."""
         fam = tok.family
         jobs = []
         if tok.chain == "solana" and "rc_score" not in f:
             jobs.append(self.security.rugcheck(tok.address if fam == "dex" else tok.mint))
-        need_safety = fam == "pump" and not (tok.security or {}).get("sec_checked")
-        if need_safety:                                    # never call a coin whose contract was not checked
-            jobs.append(self._fetch_safety(tok))
+        if not f.get("sec_checked"):                       # never call a coin whose contract was not checked
+            jobs.append(self._safety_retry(tok, f))
         if self.narrator.enabled and "llm" not in (tok.meta or {}):
             jobs.append(self._rate(tok))
         if jobs:
@@ -464,8 +524,6 @@ class Engine:
             for r in res:
                 if isinstance(r, dict):
                     f.update(r)
-        if need_safety:
-            f.update({k: v for k, v in (tok.security or {}).items() if not k.startswith("_")})
         for k, v in ((tok.meta or {}).get("llm") or {}).items():
             f[("_llm" if k.startswith("_") else "llm_") + k] = v
         prior, good, bad = prior_score(f)
@@ -493,11 +551,25 @@ class Engine:
              json.dumps({"good": good, "bad": bad})))
         lb.call_id = cur.lastrowid
         text = call_text(tok, f, prior, prob, m.ver if m else None, good, bad, self._call_hit_rate(), self.cfg.label)
-        msg_id = await self.telegram.send(text, dedupe=f"call:{tok.id}", kind="call")
-        if msg_id:
-            self.db.execute("UPDATE calls SET tg_msg_id=? WHERE id=?", (msg_id, lb.call_id))
+        ids = await self.telegram.send(text, dedupe=f"call:{tok.id}", kind="call")
+        if ids:
+            self.db.execute("UPDATE calls SET tg_msg_id=? WHERE id=?", (json.dumps(ids), lb.call_id))
         log.info("CALL %s %s (%s) prior %.0f prob %s mcap %s", tok.launchpad, tok.symbol, tok.id, prior,
                  f"{prob:.2f}" if prob is not None else "-", money(f.get("px_mcap_usd")))
+
+    async def _safety_retry(self, tok, f: dict) -> None:
+        """One more try at the contract check before a call: GMGN first, then GoPlus."""
+        if self.gmgn.enabled:
+            apply_gmgn(f, await self._gm_fetch(tok), tok.gm_feed, own_trades=isinstance(tok, PumpToken))
+        if not f.get("sec_checked"):
+            if isinstance(tok, PumpToken):
+                await self._fetch_safety(tok)
+                f.update({k: v for k, v in (tok.security or {}).items() if not k.startswith("_")})
+            else:
+                r = await (self.security.goplus_solana(tok.address) if tok.chain == "solana"
+                           else self.security.goplus(tok.chain, tok.address))
+                if r:
+                    f.update({k: v for k, v in r.items() if not k.startswith("_")})
 
     async def _rate(self, tok) -> dict | None:
         r = await self.narrator.rate(tok)
@@ -543,6 +615,77 @@ class Engine:
         self.counts["finalized"] += 1
 
     # ------------------------------------------------------------------ other launchpads
+    async def gmgn_feed_loop(self, name: str) -> None:
+        """New launches on every launchpad of one chain from GMGN, seconds after creation. For pump.fun
+        (read from the chain itself) the feed only adds socials: X followers, TG calls, reused links."""
+        g = self.cfg.sources.gmgn
+        c = g.chains[name]
+        chain = c.get("chain", name)
+        ours = OURS.get(chain, chain)
+        socials_only = bool(c.get("socials_only"))
+        while True:
+            try:
+                items = await self.gmgn.trenches(chain, list(c.get("platforms") or []), g.feed_limit)
+                now = time.time()
+                for it in items:
+                    addr = it["address"]
+                    if not str(addr).isalnum():
+                        continue                            # addresses end up in links: accept only plain ones
+                    feed = from_trenches(it)
+                    if ours == "solana" and addr in self.pump:
+                        self.pump[addr].gm_feed = feed
+                        continue
+                    if socials_only:
+                        continue
+                    tid = f"{ours}:{addr}"
+                    if tid in self.dex:
+                        self.dex[tid].gm_feed = feed
+                        continue
+                    created = float(it.get("created_timestamp") or now)
+                    if now - created > g.max_age_s or self.db.one("SELECT 1 FROM tokens WHERE id=?", (tid,)):
+                        continue
+                    progress = it.get("progress")
+                    tok = DexToken(id=tid, chain=ours, address=addr, pool=str(it.get("pool_address") or ""),
+                                   dex=str(it.get("exchange") or it.get("launchpad_platform") or ""),
+                                   launchpad=self._pad(str(it.get("launchpad_platform") or it.get("launchpad") or "?")),
+                                   name=str(it.get("name") or "")[:80], symbol=str(it.get("symbol") or "")[:40],
+                                   created_ts=created)
+                    tok.gm_feed = feed
+                    tok.on_curve = None if progress is None else float(progress) < 0.999
+                    tok.seen = self._seen(tok, created)
+                    self.dex[tid] = tok
+                    self.counts["dex_found"] += 1
+            except Exception:   # noqa: BLE001
+                log.exception("GMGN feed failed for %s", name)
+            await asyncio.sleep(c["poll_s"])
+
+    def _pad(self, raw: str) -> str:
+        return canonical_launchpad(raw, list(self.cfg.sources.launchpad_names)) or raw[:40].lower()
+
+    async def command(self, cmd: str) -> str:
+        """Telegram commands (when enabled)."""
+        if cmd in ("/status", "/start"):
+            h = self.health()
+            kind, cut = h["thresholds"][ALL]
+            return (f"🛰 Launch Radar up {h['uptime_s'] / 3600:.1f} h · pump.fun stream "
+                    f"{'live' if h['stream']['connected'] else 'DOWN'}\n"
+                    f"Watching {h['live']['pump']} pump.fun + {h['live']['dex']} other launches · "
+                    f"{h['counts']['snapshots']} snapshots, {h['counts']['calls']} calls since start\n"
+                    f"Calls need {'a ' + format(cut * 100, '.0f') + '% model chance' if kind == 'prob' else 'scorecard ' + format(cut, '.0f')}"
+                    f" · GMGN {'on' if self.gmgn.enabled else 'off'}")
+        if cmd == "/calls":
+            rows = self.db.query("SELECT c.ts, c.status, c.peak_mult, t.symbol, t.launchpad FROM calls c "
+                                 "LEFT JOIN tokens t ON t.id=c.token_id ORDER BY c.ts DESC LIMIT 8")
+            if not rows:
+                return "No calls yet."
+            icon = {"hit": "✅", "stopped": "❌", "open": "⏳", "expired": "⌛"}
+            return "Last calls:\n" + "\n".join(
+                f"{icon.get(r['status'], '•')} {esc(r['symbol'] or '?')} ({esc(r['launchpad'] or '?')}) "
+                f"{(time.time() - r['ts']) / 3600:.1f} h ago, best {r['peak_mult'] or 0:.2f}x" for r in rows)
+        if cmd == "/stats":
+            return self.summary_text()
+        return "/status - is it running\n/calls - the last calls and how they did\n/stats - the last 24 hours"
+
     async def discover_loop(self, network: str) -> None:
         net = self.cfg.sources.gecko.networks[network]
         poll = net.get("fast_poll_s", net["poll_s"]) if self.gecko.headers else net["poll_s"]
@@ -698,7 +841,10 @@ class Engine:
 
     # ------------------------------------------------------------------ housekeeping
     async def daily_loop(self) -> None:
-        hh, mm = (int(x) for x in self.cfg.telegram.daily_summary_utc.split(":"))
+        when = str(self.cfg.telegram.get("daily_summary_utc") or "off")
+        if ":" not in when:
+            return                                          # "off"
+        hh, mm = (int(x) for x in when.split(":"))
         while True:
             now = time.time()
             t = time.gmtime(now)
@@ -815,8 +961,11 @@ class Engine:
                          t.open_labels() for t in self.dex.values())},
             "stream": {"connected": s.connected, "last_msg_age_s": now - s.last_msg if s.last_msg else None,
                        "msgs": s.msgs, "events": s.events, "reconnects": s.reconnects, "mb": round(s.bytes / 1e6, 1)},
-            "apis": {k: {"calls": v.calls, "errors": v.errors, "rate_limited": v.limited, "backlog_s": round(v.backlog_s(), 1)}
-                     for k, v in self.http.limiters.items()},
+            "apis": {**({"gmgn": {"calls": self.gmgn.calls, "errors": self.gmgn.errors, "rate_limited": self.gmgn.limited,
+                                  "backlog_s": round(self.gmgn.backlog_s(), 1)}} if self.gmgn.enabled else {}),
+                     **{k: {"calls": v.calls, "errors": v.errors, "rate_limited": v.limited,
+                            "backlog_s": round(v.backlog_s(), 1)} for k, v in self.http.limiters.items()}},
+            "gmgn": self.gmgn.enabled,
             "thresholds": {ALL: self.threshold(now)},
             "models": {ALL: (self.models[ALL].ver if self.models[ALL] else None)},
             "sol_usd": self.quotes.price(SYSTEM), "metadata": {"ok": self.metadata.fetched, "failed": self.metadata.failed},
