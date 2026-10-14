@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launch Radar</title>
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --line:#262d38; --text:#dfe5ee; --dim:#8b96a8; --good:#3fb950; --bad:#f0655a;
+          --warn:#d9a13b; --accent:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:12px 18px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; letter-spacing:.3px; }
+  #status { color:var(--dim); font-size:12.5px; margin-left:auto; text-align:right; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; background:var(--bad); }
+  .dot.on { background:var(--good); }
+  nav { display:flex; gap:4px; padding:8px 14px 0; border-bottom:1px solid var(--line); overflow-x:auto; }
+  nav button { background:none; border:0; color:var(--dim); padding:8px 12px; cursor:pointer; font:inherit;
+               border-bottom:2px solid transparent; white-space:nowrap; }
+  nav button.on { color:var(--text); border-bottom-color:var(--accent); }
+  main { padding:16px 18px 60px; max-width:1500px; margin:0 auto; }
+  h2 { font-size:14px; margin:22px 0 8px; color:var(--dim); font-weight:600; text-transform:uppercase; letter-spacing:.6px; }
+  h2:first-child { margin-top:0; }
+  p.note { color:var(--dim); margin:4px 0 12px; max-width:900px; }
+  .wrap { overflow-x:auto; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  th, td { padding:7px 10px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--dim); font-weight:600; font-size:12px; position:sticky; top:0; background:var(--panel); }
+  tr:last-child td { border-bottom:0; }
+  tbody tr.click { cursor:pointer; } tbody tr.click:hover { background:#1c232d; }
+  td.num, th.num { text-align:right; }
+  .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); } .dim { color:var(--dim); }
+  .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; border:1px solid var(--line); }
+  .pill.hit { color:var(--good); border-color:#245c33; } .pill.stopped { color:var(--bad); border-color:#6b2c27; }
+  .pill.open { color:var(--accent); border-color:#234a78; } .pill.expired { color:var(--dim); }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin-bottom:6px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:11px 13px; }
+  .card b { display:block; font-size:21px; font-weight:600; margin-top:2px; }
+  .card span { color:var(--dim); font-size:12px; }
+  .bar { display:inline-block; height:9px; border-radius:2px; background:var(--accent); vertical-align:middle; min-width:1px; }
+  .cells { display:flex; gap:3px; } .cell { padding:2px 6px; border-radius:3px; font-size:12px; color:#0e1116; min-width:44px; text-align:center; }
+  a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:flex-start; justify-content:center; padding:30px 12px; overflow:auto; z-index:5; }
+  #modal .box { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; width:min(980px,100%); }
+  #modal .close { float:right; cursor:pointer; color:var(--dim); font-size:18px; }
+  .kv { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:2px 18px; font-size:12.5px; }
+  .kv div { display:flex; justify-content:space-between; border-bottom:1px dotted var(--line); padding:2px 0; }
+  .kv div span:first-child { color:var(--dim); }
+  #login { max-width:320px; margin:90px auto; text-align:center; }
+  input { background:var(--panel); border:1px solid var(--line); color:var(--text); padding:9px 11px; border-radius:6px; font:inherit; width:100%; }
+  button.primary { margin-top:10px; width:100%; padding:9px; border-radius:6px; border:0; background:var(--accent); color:#06121f; font:inherit; font-weight:600; cursor:pointer; }
+  code { font-size:12px; color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛰️ Launch Radar</h1>
+  <span class="dim">signals only — never trades, not financial advice</span>
+  <div id="status"></div>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+<div id="modal"><div class="box"><span class="close" onclick="closeModal()">✕</span><div id="modal-body"></div></div></div>
+<script>
+const TABS = [["calls","Calls"],["watch","Watching now"],["score","Scoreboard"],["learn","What it has learned"],["fail","How launches die"],["health","Health"]];
+let tab = location.hash.slice(1) || "calls", timer = null;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pct = (x, d=0) => x == null ? "–" : (x*100).toFixed(d) + "%";
+const num = (x, d=2) => x == null ? "–" : Number(x).toFixed(d);
+const money = x => x == null ? "–" : x >= 1e6 ? "$"+(x/1e6).toFixed(2)+"M" : x >= 1e3 ? "$"+(x/1e3).toFixed(1)+"k" : "$"+Math.round(x);
+const ago = ts => { const s = Date.now()/1000 - ts; return s < 90 ? Math.round(s)+"s" : s < 5400 ? Math.round(s/60)+"m" : s < 172800 ? (s/3600).toFixed(1)+"h" : Math.round(s/86400)+"d"; };
+const dur = s => s == null ? "–" : s < 90 ? Math.round(s)+"s" : s < 5400 ? Math.round(s/60)+"m" : (s/3600).toFixed(1)+"h";
+const multCls = m => m == null ? "dim" : m >= 2 ? "good" : m < 0.7 ? "bad" : "";
+
+async function api(path) {
+  const r = await fetch("api/" + path, {credentials:"same-origin"});
+  if (r.status === 401) { showLogin(); throw new Error("login"); }
+  if (!r.ok) throw new Error(path + " " + r.status);
+  return r.json();
+}
+function showLogin() {
+  clearInterval(timer); $("#nav").innerHTML = "";
+  $("#main").innerHTML = `<div id="login"><h2>Dashboard password</h2><input id="pw" type="password" autofocus>
+    <button class="primary" onclick="login()">Sign in</button><p id="lerr" class="bad"></p></div>`;
+  $("#pw").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+}
+async function login() {
+  const r = await fetch("api/login", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({password:$("#pw").value})});
+  if (r.ok) start(); else $("#lerr").textContent = r.status === 429 ? "Too many attempts - wait 15 minutes." : "Wrong password.";
+}
+function nav() {
+  $("#nav").innerHTML = TABS.map(([k,l]) => `<button class="${k===tab?"on":""}" onclick="go('${k}')">${l}</button>`).join("");
+}
+function go(k) { tab = k; location.hash = k; nav(); render(); }
+function table(heads, rows, empty="Nothing yet.") {
+  if (!rows.length) return `<p class="note">${empty}</p>`;
+  return `<div class="wrap"><table><thead><tr>${heads.map(h => `<th class="${h.startsWith("#")?"num":""}">${esc(h.replace(/^#/,""))}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+}
+const tokCell = r => `<b>${esc(r.symbol || "?")}</b> <span class="dim">${esc((r.name||"").slice(0,26))}</span>`;
+const score = r => r.prob != null ? `<b>${pct(r.prob)}</b> <span class="dim">/ ${num(r.prior,0)}</span>` : `<b>${num(r.prior,0)}</b><span class="dim">/100</span>`;
+
+async function header() {
+  const h = await api("health");
+  const s = h.stream, c = h.counts;
+  $("#status").innerHTML = `<span class="dot ${s.connected?"on":""}"></span>pump.fun stream ${s.connected?"live":"DOWN"} · watching ${h.live.pump} pump + ${h.live.dex} other · ${c.snapshots} snapshots, ${c.calls} calls since start (${dur(h.uptime_s)}) · SOL ${h.sol_usd?"$"+h.sol_usd.toFixed(2):"?"}`;
+  return h;
+}
+
+const VIEWS = {
+  async calls() {
+    const rows = await api("calls?limit=200");
+    const closed = rows.filter(r => r.status !== "open"), hits = rows.filter(r => r.status === "hit").length;
+    return `<div class="cards">
+      <div class="card"><span>Calls shown</span><b>${rows.length}</b></div>
+      <div class="card"><span>Hit 2x</span><b class="good">${hits}</b></div>
+      <div class="card"><span>Hit rate (closed)</span><b>${closed.length ? pct(hits/closed.length) : "–"}</b></div>
+      <div class="card"><span>Still open</span><b>${rows.length - closed.length}</b></div></div>
+      <p class="note">A call is "hit" when price reached 2x the call price before falling 50% below it. Score shows the model's probability when a model is in use (scorecard after the slash), otherwise the scorecard out of 100. Click a row for every recorded factor.</p>` +
+      table(["When","Token","Launchpad","Age at call","Score","#Mcap at call","Status","#Best","#Time to 2x","Why"], rows.map(r =>
+        `<tr class="click" onclick="tokenModal('${esc(r.token_id)}')"><td>${ago(r.ts)} ago</td><td>${tokCell(r)}</td><td>${esc(r.launchpad||"")}</td><td>${dur(r.cp)}</td>
+         <td>${score(r)}</td><td class="num">${money(r.mcap_usd)}</td><td><span class="pill ${r.status}">${r.status}</span></td>
+         <td class="num ${multCls(r.peak_mult)}">${r.peak_mult?num(r.peak_mult)+"x":"–"}</td><td class="num">${dur(r.t_hit)}</td>
+         <td class="dim">${esc(((r.reasons||{}).good||[]).slice(0,3).join(", "))}</td></tr>`), "No calls yet. The scanner calls only the top slice of launches; it can take a while.");
+  },
+  async watch() {
+    const rows = await api("candidates");
+    return `<p class="note">The strongest snapshots of the last 30 minutes, whether or not they were called. "Blocked" shows the hard veto that stopped a call.</p>` +
+      table(["When","Token","Launchpad","Age","Score","#Mcap","Called","Blocked by","Outcome"], rows.map(r =>
+        `<tr class="click" onclick="tokenModal('${esc(r.token_id)}')"><td>${ago(r.ts)} ago</td><td>${tokCell(r)}</td><td>${esc(r.launchpad||"")}</td><td>${dur(r.cp)}</td>
+         <td>${score(r)}</td><td class="num">${money(r.mcap_usd)}</td><td>${r.called?'<span class="good">yes</span>':'<span class="dim">no</span>'}</td>
+         <td class="warn">${esc(r.gate||"")}</td><td>${r.done ? (r.hit?'<span class="good">2x ✓</span>':'<span class="dim">no</span>')+` <span class="dim">(best ${num(r.peak_mult)}x)</span>` : '<span class="dim">tracking…</span>'}</td></tr>`));
+  },
+  async score() {
+    const d = await api("scoreboard?days=30"), t = d.total, closed = (t.hit||0)+(t.stopped||0);
+    const fam = f => d.score_buckets.filter(b => b.family === f);
+    const maxRate = Math.max(0.01, ...d.score_buckets.map(b => b.rate||0), ...d.prob_buckets.map(b => b.rate||0));
+    const bars = (rows, label) => table([label,"#Snapshots","#Went 2x",""], rows.map(b =>
+      `<tr><td>${esc(b.family)} · ${b.bucket}–${b.bucket+10}</td><td class="num">${b.n}</td><td class="num">${pct(b.rate,1)}</td><td><span class="bar" style="width:${Math.round((b.rate||0)/maxRate*260)}px"></span></td></tr>`), "No finished snapshots yet.");
+    return `<div class="cards">
+      <div class="card"><span>Calls (30 d)</span><b>${t.n||0}</b></div>
+      <div class="card"><span>Hit 2x</span><b class="good">${t.hit||0}</b></div>
+      <div class="card"><span>Stopped (-50%)</span><b class="bad">${t.stopped||0}</b></div>
+      <div class="card"><span>Hit rate</span><b>${closed?pct((t.hit||0)/closed):"–"}</b></div>
+      <div class="card"><span>Average best multiple</span><b>${t.avg_peak?num(t.avg_peak)+"x":"–"}</b></div></div>
+      <h2>By day</h2>` + table(["Day","Family","#Calls","#Hit","#Stopped","#Open","#Hit rate","#Avg best"], d.by_day.map(r => { const c=(r.hit||0)+(r.stopped||0);
+        return `<tr><td>${r.day}</td><td>${r.family}</td><td class="num">${r.n}</td><td class="num good">${r.hit||0}</td><td class="num bad">${r.stopped||0}</td><td class="num">${r.open||0}</td><td class="num">${c?pct((r.hit||0)/c):"–"}</td><td class="num">${r.avg_peak?num(r.avg_peak)+"x":"–"}</td></tr>`; })) +
+      `<h2>By launchpad</h2>` + table(["Launchpad","#Closed calls","#Hit","#Hit rate","#Avg best"], d.by_launchpad.map(r =>
+        `<tr><td>${esc(r.launchpad||"?")}</td><td class="num">${r.n}</td><td class="num">${r.hit||0}</td><td class="num">${pct((r.hit||0)/r.n)}</td><td class="num">${r.avg_peak?num(r.avg_peak)+"x":"–"}</td></tr>`)) +
+      `<h2>Does a higher score mean more runners?</h2><p class="note">Every snapshot (not only calls), grouped by its score, with the share that went on to 2x. If the bars rise to the right, the scoring is working.</p>` +
+      bars(d.score_buckets, "Scorecard") + (d.prob_buckets.length ? `<h2>Model probability vs. reality</h2>` + bars(d.prob_buckets, "Model %") : "") +
+      `<h2>Base rates</h2><p class="note">How often any active launch 2x's from each snapshot age - the number the calls have to beat.</p>` +
+      table(["Family","Age at snapshot","#Snapshots","#Went 2x","#Avg best"], d.base_rates.map(r =>
+        `<tr><td>${r.family}</td><td>${dur(r.cp)}</td><td class="num">${r.n}</td><td class="num">${pct(r.rate,1)}</td><td class="num">${num(r.avg_peak)}x</td></tr>`));
+  },
+  async learn() {
+    const d = await api("learning");
+    let html = `<div class="cards">
+      <div class="card"><span>Wallets tracked</span><b>${(d.wallets.tracked||0).toLocaleString()}</b></div>
+      <div class="card"><span>With enough history</span><b>${(d.wallets.seasoned||0).toLocaleString()}</b></div>
+      <div class="card"><span>Smart wallets found</span><b class="good">${d.wallets.smart.length}${d.wallets.smart.length>=25?"+":""}</b></div>
+      <div class="card"><span>Creators tracked</span><b>${(d.wallets.creators||0).toLocaleString()}</b></div></div><h2>Learning status</h2>`;
+    html += table(["Family","Labelled snapshots","Winners","Base rate","Status"], Object.entries(d.last).map(([f,r]) =>
+      `<tr><td>${f}</td><td>${(r.n_rows||0).toLocaleString()}</td><td>${(r.n_pos||0).toLocaleString()}</td><td>${pct(r.base_rate,1)}</td><td>${esc(r.note || r.verdict || "—")}${r.promoted?' <span class="good">→ promoted '+esc(r.ver)+'</span>':''}</td></tr>`));
+    html += `<h2>Models</h2><p class="note">Each retrain is tested on the newest 15% of history it never saw. "Top 2%" = of the 2% it ranked highest, how many really 2x'd, next to the hand scorecard on the same tokens.</p>` +
+      table(["Version","Family","Trained","#Rows","#Winners","#Top 2% (model)","#Top 2% (scorecard)","#Base rate","#Call threshold","#Expected hit rate","In use"], d.models.map(m => { const t=m.test||{}, th=m.threshold||{};
+        return `<tr><td>${esc(m.ver)}</td><td>${m.family}</td><td>${ago(m.ts)} ago</td><td class="num">${m.n_rows}</td><td class="num">${m.n_pos}</td><td class="num">${pct((t.model||{}).p_top2)}</td><td class="num">${pct((t.scorecard||{}).p_top2)}</td><td class="num">${pct(t.base_rate,1)}</td><td class="num">${pct(th.thr)}</td><td class="num">${pct(th.expected_precision)}</td><td>${m.active?'<span class="good">yes</span>':""}</td></tr>`; }), "No model yet - the scorecard is deciding while labelled history builds up.");
+    const act = d.models.find(m => m.active && m.importance);
+    if (act) html += `<h2>What the current model leans on most</h2>` + table(["Factor","#Importance"], act.importance.map(i => `<tr><td>${esc(i.feature)}</td><td class="num">${i.gain}</td></tr>`));
+    for (const [f, lift] of Object.entries(d.lift)) {
+      if (!lift.length) continue;
+      const base = lift[0].base_rate;
+      html += `<h2>What separates winners — ${f}</h2><p class="note">${lift[0].n.toLocaleString()} finished snapshots, ${pct(base,1)} went 2x. Each factor is cut into value ranges; the cell shows the 2x rate in that range (greener = better than average). Strongest separators first.</p>` +
+        table(["Factor","#Coverage","Value ranges → 2x rate","Best range","Worst range"], lift.slice(1).map(r =>
+          `<tr><td>${esc(r.feature)}</td><td class="num">${pct(r.coverage)}</td><td><div class="cells">${r.cells.map(c => { const k=Math.max(-1,Math.min(1,(c.rate-base)/Math.max(base,0.01)/1.5));
+            const col = k>=0 ? `rgba(63,185,80,${0.25+0.75*k})` : `rgba(240,101,90,${0.25+0.75*-k})`;
+            return `<span class="cell" style="background:${col}" title="${num(c.lo,3)} to ${num(c.hi,3)} · n=${c.n}">${pct(c.rate)}</span>`; }).join("")}</div></td>
+           <td>${num(r.best.lo,2)} – ${num(r.best.hi,2)} <span class="good">${pct(r.best.rate)}</span></td><td>${num(r.worst.lo,2)} – ${num(r.worst.hi,2)} <span class="bad">${pct(r.worst.rate)}</span></td></tr>`));
+    }
+    if (d.wallets.smart.length) html += `<h2>Smart wallets the scanner has identified</h2>` + table(["Wallet","#Tokens entered early","#Winners","#Win rate vs. average","#Realised P&L"], d.wallets.smart.map(w =>
+      `<tr><td><code>${esc(w.addr)}</code></td><td class="num">${w.n_tok}</td><td class="num">${w.n_win}</td><td class="num good">${w.lift}x</td><td class="num">${money(w.pnl)}</td></tr>`));
+    return html;
+  },
+  async fail() {
+    const rows = await api("failures");
+    const names = {never_started:"Never got going (peak under 1.5x of launch)", fast_fade:"Fast fade (halved within 5 min of the top)", slow_bleed:"Slow bleed (took over 5 min to halve)",
+      dev_dump:"Dev dump (creator sold most of their bag first)", bundle_dump:"Bundle / sniper dump (launch-block wallets sold out)", whale_dump:"Whale dump (one sell of 3%+ of supply after the top)",
+      graduated:"Graduated to a DEX", still_up:"Still above half its peak when tracking ended"};
+    return `<p class="note">Every tracked launch is classified by how it ended, from its last few thousand examples. Medians: how high it got, how long to the top, how long from the top to half, how much of the dev's bag was sold, and the share of volume in the crash that was selling.</p>` +
+      table(["Family","Ending","#Tokens","#Peak vs. launch","#Time to peak","#Top → half","#Dev bag sold","#Sells in crash bar"], rows.map(r =>
+        `<tr><td>${r.family}</td><td>${esc(names[r.kind]||r.kind)}</td><td class="num">${r.n}</td><td class="num">${r.peak?num(r.peak)+"x":"–"}</td><td class="num">${dur(r.t_peak)}</td><td class="num">${dur(r.t_half)}</td><td class="num">${pct(r.dev_sold)}</td><td class="num">${pct(r.crash_sell)}</td></tr>`));
+  },
+  async health(h) {
+    const c = h.counts;
+    return `<div class="cards">${[["Launches seen",c.creates],["Trades processed",c.trades],["Other-launchpad tokens",c.dex_found],["Snapshots",c.snapshots],["Below activity gate",c.gated_out],["Labels finished",c.labels],["…of which 2x",c.hits],["Calls",c.calls],["Stream gaps",c.gaps]].map(([l,v]) => `<div class="card"><span>${l}</span><b>${(v||0).toLocaleString()}</b></div>`).join("")}</div>
+      <h2>Call thresholds right now</h2>` + table(["Family","Decides by","#Needs at least","Model"], Object.entries(h.thresholds).map(([f,[k,v]]) =>
+        `<tr><td>${f}</td><td>${k==="prob"?"model probability":"scorecard (top slice of last 24 h)"}</td><td class="num">${k==="prob"?pct(v):num(v,1)}</td><td>${esc(h.models[f]||"none yet")}</td></tr>`)) +
+      `<h2>Data sources</h2>` + table(["Source","#Calls","#Errors","#Rate-limited","#Queue"], [`<tr><td>pump.fun stream</td><td class="num">${h.stream.msgs.toLocaleString()} msgs</td><td class="num">${h.stream.reconnects} reconnects</td><td class="num">–</td><td class="num">${h.stream.mb} MB</td></tr>`]
+        .concat(Object.entries(h.apis).map(([k,v]) => `<tr><td>${esc(k)}</td><td class="num">${v.calls}</td><td class="num">${v.errors}</td><td class="num">${v.rate_limited}</td><td class="num">${v.backlog_s}s</td></tr>`))) +
+      `<p class="note">Telegram: ${h.telegram?"connected":"<span class='warn'>not configured (alerts print to the log)</span>"} · LLM meme rating: ${h.llm.enabled?"on, "+h.llm.used_today+" used today":"off"} · Metadata fetched: ${h.metadata.ok} ok / ${h.metadata.failed} failed</p>`;
+  },
+};
+
+function spark(path) {
+  if (!path || path.length < 2) return "";
+  const W=920, H=150, xs=path.map(p=>p[0]), ys=path.map(p=>Math.log(Math.max(p[1],1e-9)));
+  const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys);
+  const X=x=>(x-x0)/Math.max(x1-x0,1)*(W-10)+5, Y=y=>H-5-(y-y0)/Math.max(y1-y0,1e-9)*(H-10);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#0e1116;border-radius:6px;margin:8px 0"><polyline fill="none" stroke="#58a6ff" stroke-width="1.6" points="${path.map((p,i)=>X(p[0])+","+Y(ys[i])).join(" ")}"/></svg>
+    <div class="dim" style="font-size:12px">Price as a multiple of launch price (log scale), ${dur(x0)} → ${dur(x1)} after launch · low ${num(Math.exp(y0))}x · high ${num(Math.exp(y1))}x</div>`;
+}
+async function tokenModal(id) {
+  const d = await api("token?id=" + encodeURIComponent(id)), t = d.token, f = t.final || {};
+  const link = t.chain === "solana" ? `https://dexscreener.com/solana/${t.address}` : `https://dexscreener.com/${t.chain}/${t.address}`;
+  let html = `<h2>${esc(t.symbol)} — ${esc(t.name)}</h2><p><code>${esc(t.address)}</code> · ${esc(t.launchpad)} · ${esc(t.chain)} · launched ${ago(t.created_ts)} ago · <a href="${link}" target="_blank" rel="noopener noreferrer">chart ↗</a></p>`;
+  if (f.kind) html += `<p>Ending: <b>${esc(f.kind)}</b> · peak ${num(f.peak_mult)}x of launch after ${dur(f.t_peak_s)} · top → half ${dur(f.t_half_s)} · dev sold ${pct(f.dev_sold_share)} of bag${f.max_sell?` · biggest sell ${num(f.max_sell.pct,2)}% of supply by ${esc(f.max_sell.role)}`:""}</p>`;
+  html += spark(f.path);
+  for (const s of d.snapshots) {
+    html += `<h2>Snapshot at ${dur(s.cp)} — ${s.prob!=null?pct(s.prob)+" model · ":""}scorecard ${num(s.prior,0)} ${s.called?'· <span class="good">CALLED</span>':''} ${s.gate?'· <span class="warn">blocked: '+esc(s.gate)+'</span>':''} · ${s.done?(s.hit?'<span class="good">went 2x</span>':'did not 2x')+" (best "+num(s.peak_mult)+"x, "+esc(s.end_reason)+")":"tracking…"}</h2>
+      <div class="kv">${Object.entries(s.features).filter(([k,v]) => v != null && !k.startsWith("_")).map(([k,v]) => `<div><span>${esc(k)}</span><span>${typeof v === "number" ? (Number.isInteger(v)?v:v.toPrecision(4)) : esc(v)}</span></div>`).join("")}</div>`;
+  }
+  $("#modal-body").innerHTML = html; $("#modal").style.display = "flex";
+}
+function closeModal() { $("#modal").style.display = "none"; }
+$("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
+
+async function render() {
+  try { const h = await header(); $("#main").innerHTML = await VIEWS[tab](h); }
+  catch (e) { if (e.message !== "login") $("#main").innerHTML = `<p class="bad">Could not load: ${esc(e.message)}</p>`; }
+}
+function start() { nav(); render(); clearInterval(timer); timer = setInterval(() => { if ($("#modal").style.display !== "flex") render(); }, 15000); }
+start();
+</script>
+</body>
+</html>

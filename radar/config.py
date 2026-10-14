@@ -1,0 +1,67 @@
+"""config.yaml -> attribute access, plus .env secrets and RADAR_OVERRIDES."""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import yaml
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+class Section(dict):
+    """A dict whose keys also read as attributes; nested dicts become Sections."""
+
+    def __getattr__(self, k):
+        try:
+            v = self[k]
+        except KeyError:
+            raise AttributeError(k) from None
+        return Section(v) if isinstance(v, dict) and not isinstance(v, Section) else v
+
+
+def _coerce(text: str):
+    return yaml.safe_load(text)
+
+
+def apply_overrides(cfg: dict, spec: str) -> None:
+    """ "a.b.c=1;x.y=foo" -> cfg[a][b][c] = 1 ..."""
+    for part in filter(None, (p.strip() for p in spec.split(";"))):
+        path, _, val = part.partition("=")
+        node = cfg
+        keys = path.strip().split(".")
+        for k in keys[:-1]:
+            node = node.setdefault(k, {})
+        node[keys[-1]] = _coerce(val)
+
+
+class Config(Section):
+    @property
+    def data_dir(self) -> Path:
+        p = Path(self["app"]["data_dir"])
+        p = p if p.is_absolute() else ROOT / p
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def secret(self, name: str) -> str:
+        return os.environ.get(name, "").strip()
+
+
+def load_config(path: str | os.PathLike | None = None) -> Config:
+    load_dotenv(ROOT / ".env")
+    with open(path or ROOT / "config.yaml", encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    apply_overrides(raw, os.environ.get("RADAR_OVERRIDES", ""))
+    ws = os.environ.get("SOLANA_WS_URL", "").strip()
+    if ws:
+        raw["sources"]["pump"]["ws_url"] = ws
+    rpc = os.environ.get("SOLANA_RPC_URL", "").strip()
+    if rpc:
+        raw["sources"]["pump"]["rpc_url"] = rpc
+    if os.environ.get("COINGECKO_DEMO_API_KEY", "").strip():
+        raw["sources"]["gecko"]["calls_per_min"] = max(25, raw["sources"]["gecko"]["calls_per_min"])
+    port = os.environ.get("PORT", "").strip()
+    if port:
+        raw["dashboard"]["port"] = int(port)
+    return Config(raw)

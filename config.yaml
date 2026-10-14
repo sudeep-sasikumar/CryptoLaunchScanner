@@ -1,0 +1,149 @@
+# Launch Radar - configuration. Signals only: this program never trades.
+# Secrets (Telegram, dashboard password, optional API keys) live in .env, not here.
+# Any value can be overridden without editing this file:  RADAR_OVERRIDES="call.top_pct=1.5;label.target=3"
+
+app:
+  data_dir: var              # database, models, logs
+  log_level: INFO
+
+# ---------------------------------------------------------------- where launches come from
+sources:
+  pump:                      # pump.fun: every create / trade / graduation, straight from the Solana program logs
+    enabled: true
+    ws_url: wss://api.mainnet-beta.solana.com    # free public RPC; SOLANA_WS_URL in .env overrides (e.g. a Helius key)
+    rpc_url: https://api.mainnet-beta.solana.com
+    stall_s: 30              # no message for this long = reconnect
+  gecko:                     # every other launchpad, via GeckoTerminal "new pools" (free)
+    enabled: true
+    calls_per_min: 5         # measured free limit (burst of 6, then ~1 per 12 s); 25 with COINGECKO_DEMO_API_KEY
+    # poll_s is used on the free limit, fast_poll_s when the demo key is set
+    networks:
+      solana:    {poll_s: 30,  fast_poll_s: 10, skip_dexes: [pump-fun, pumpswap]}   # pump.fun is covered natively above
+      robinhood: {poll_s: 60,  fast_poll_s: 20}                                      # PONS, StonkBrokers, Uniswap v4 ...
+      bsc:       {poll_s: 180, fast_poll_s: 45, only_launchpads: true}               # four.meme ...
+      base:      {poll_s: 180, fast_poll_s: 45, only_launchpads: true}               # Clanker, Zora, Virtuals ...
+    # GeckoTerminal dex id (substring match) -> launchpad name shown in alerts and learned as a feature
+    launchpads:
+      pons: pons
+      stonk: stonks
+      launchlab: launchlab        # Raydium LaunchLab: LetsBonk, StonkFun
+      meteora-dbc: meteora-dbc    # Believe, Bags, ...
+      moonshot: moonshot
+      moonit: moonit
+      boop: boop
+      heaven: heaven
+      four-meme: four-meme
+      fourmeme: four-meme
+      clanker: clanker
+      zora: zora
+      virtuals: virtuals
+      bankr: bankr
+      hoodit: hoodit
+      frontier-fun: frontier-fun
+      o1-launchpad: o1
+      uniswap-pools-trade: pools-trade
+      flaunch: flaunch
+      sunpump: sunpump
+  dexscreener:
+    calls_per_min: 200       # documented limit 300
+    poll_s: 30               # price / volume snapshot cadence for tracked non-pump tokens
+  rugcheck: {enabled: true, calls_per_min: 12}     # Solana holders / insiders / risk flags (limit 15)
+  goplus:   {enabled: true, calls_per_min: 20}     # EVM honeypot / tax / owner / blacklist checks
+  metadata: {enabled: true, concurrency: 8, timeout_s: 6, image_hash: true, telegram_members: true}
+  llm:                       # optional: Claude rates the meme / narrative (needs ANTHROPIC_API_KEY)
+    enabled: true
+    model: claude-opus-5-5   # best judgement; claude-haiku-5-5 is ~40x cheaper if cost matters more
+    max_per_day: 150         # only near-call candidates are rated; this caps the spend
+
+# ---------------------------------------------------------------- when a token is measured
+# A "snapshot" is taken at each age below (seconds since launch): every factor is computed from
+# what was knowable at that moment, stored, scored, and later labelled with what happened next.
+checkpoints:
+  pump: [60, 180, 600, 1800]
+  dex:  [300, 900, 2700]
+
+activity_gate:               # tokens below this at a checkpoint are not worth a snapshot
+  pump: {min_buys: 12, min_buyers: 10, max_idle_s: 60, min_mcap_mult: 1.15}
+  dex:  {min_txns_h1: 25, min_liquidity_usd: 4000, min_volume_h1_usd: 3000}
+
+pump:
+  doa_age_s: 150             # dead on arrival: dropped from memory at this age with fewer than doa_buys buys
+  doa_buys: 8
+  sniper_slots: 5            # buys within this many slots (~0.4 s each) after the creation slot count as snipers
+  early_trades: 400          # trades kept in full detail per token
+  max_wallets: 4000
+  bar_s: 15
+
+# ---------------------------------------------------------------- what counts as "it ran"
+label:
+  target: 2.0                # x from the call price ...
+  stop: 0.5                  # ... reached before falling to this multiple
+  entry_slippage_pct: 3      # the call price is assumed to be this much worse than the last trade
+  horizon_s: 21600           # 6 h
+  idle_s: 900                # no trades for this long = the story is over, outcome is final
+
+# ---------------------------------------------------------------- when a call is sent
+call:
+  top_pct: 2.0               # before a learned model exists: call the top X% of prior scores (rolling 24 h)
+  min_prior: 62              # ... but never below this score
+  target_precision: 0.40     # with a learned model: threshold tuned so this share of calls should 2x
+  min_prob: 0.25             # ... but never below this probability
+  max_per_hour: 10
+  enrich_margin: 8           # run the slow pre-call checks (RugCheck, LLM) when within this many points of calling
+  mcap_usd: {min: 4500, max: 400000}
+  allow_unknown_quote: false # pump coins paired against a token with no USD price are recorded, not called
+
+# Vetoes. Safety ones (cannot sell, tax, owner can mint / blacklist, thin liquidity, flagged as rugged,
+# mcap range) always apply. The opinion ones below marked (*) apply while the scorecard decides and
+# step aside once a learned model is in use - it has seen how such launches really end.
+gates:
+  pump:
+    max_bundle_held_pct: 25  # (*) supply STILL held by wallets that bought in the creation slot or the sniper slots
+    max_top10_pct: 55        # (*)
+    max_dev_hold_pct: 25     # (*)
+    max_dev_sold_pct: 60     # (*) share of the dev's own bag already sold
+    max_drawdown_pct: 55     # (*) below the high so far
+    max_creator_launches_24h: 6   # (*)
+  dex:
+    max_tax_pct: 10
+    min_liquidity_usd: 6000
+    max_top10_pct: 60        # (*)
+    max_creator_pct: 20      # (*)
+
+# ---------------------------------------------------------------- self-learning
+learn:
+  retrain_hours: 12
+  min_rows: 1500             # labelled snapshots needed before a model is trained
+  min_pos: 60                # ... of which this many winners
+  max_rows: 250000           # newest labelled snapshots used per retrain (~120 MB of RAM while training)
+  promote_margin: 0.0        # challenger must beat champion PR-AUC by this much on the newest unseen data
+  lift_bins: 5
+  wallets:
+    early_buyers: 40         # first N distinct buyers of a token are credited / blamed for its outcome
+    min_tokens: 6            # a wallet needs this much history before it is called smart or toxic
+    smart_lift: 1.8          # win rate vs. the average early buyer
+    toxic_lift: 0.7          # creation-slot regulars whose picks win this little vs. average = bundlers
+
+# ---------------------------------------------------------------- what is kept on disk
+storage:
+  max_gb: 20                 # hard cap (database + models); above 90% of it the oldest history is dropped
+  retention_days:
+    snapshots: 120           # training data (~1 KB each, ~9,000/day = ~1 GB at full retention)
+    calls: 365               # every alert and its snapshot
+    tokens: 30               # how each snapshotted token ended + thinned price path (~2 KB each)
+    wallets: 45              # wallets seen fewer than 4 times are forgotten after this ...
+    stale: 120               # ... and any wallet / creator not seen for this long
+    seen: 10                 # name / symbol / image / social counters for uniqueness factors
+
+telegram:
+  enabled: true
+  outcome_updates: true      # reply under each call when it hits 2x / stops out
+  daily_summary_utc: "06:00"
+
+dashboard:
+  enabled: true
+  bind_host: 127.0.0.1       # the VPS compose file sets 0.0.0.0 (login then enforced)
+  port: 8010
+  base_url: http://localhost:8010
+  cookie_secure: false
+  session_days: 30

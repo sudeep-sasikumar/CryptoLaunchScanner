@@ -1,0 +1,55 @@
+# Launch Radar on a VPS (README "Running on the VPS").
+# Made for Hostinger Docker Manager -> "Compose from URL" with this file's raw GitHub link:
+#   https://raw.githubusercontent.com/sudeep-sasikumar/LaunchRadar/master/docker-compose.yaml
+# Hostinger downloads ONLY this file, so nothing here refers to other files. The image is built
+# by GitHub Actions (.github/workflows/docker-image.yml) on every push; a redeploy pulls the latest.
+#
+# HTTPS: the VPS already runs Traefik (set up for Ignition & Coil). The dashboard is served under
+# /radar/ on the same hostname, so it reuses that hostname's certificate: no new domain needed.
+# (Traefik prefers the longer rule, so /radar/ goes here and everything else stays with Ignition & Coil.)
+#
+# Environment variables to enter in Docker Manager:
+#   TELEGRAM_BOT_TOKEN       from @BotFather (the Ignition & Coil bot works: this app only sends)
+#   TELEGRAM_CHAT_ID         your chat id
+#   DASHBOARD_PASSWORD       required for the dashboard - pick a long one
+#   DOMAIN                   optional - defaults to this VPS's Hostinger hostname
+#   SOLANA_WS_URL            optional - a private Solana RPC websocket (e.g. free Helius key); steadier than the public one
+#   COINGECKO_DEMO_API_KEY   optional, free - 5x faster discovery of launches outside pump.fun
+#   ANTHROPIC_API_KEY        optional - lets Claude rate each candidate's meme / narrative
+services:
+  radar:
+    image: ghcr.io/sudeep-sasikumar/launchradar:latest
+    pull_policy: always                   # a redeploy picks up the newest image
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}   # required: without it the dashboard stays off
+      SOLANA_WS_URL: ${SOLANA_WS_URL:-}
+      COINGECKO_DEMO_API_KEY: ${COINGECKO_DEMO_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # login is enforced because bind_host is not localhost; cookies only over HTTPS
+      RADAR_OVERRIDES: "dashboard.bind_host=0.0.0.0;dashboard.cookie_secure=true;dashboard.base_url=https://${DOMAIN:-srv1479428.hstgr.cloud}/radar/"
+    volumes:
+      - radar_data:/app/var               # database, learned models, logs (capped at 20 GB by the app)
+    expose:
+      - "8010"                            # reached only through Traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.launch-radar.rule=Host(`${DOMAIN:-srv1479428.hstgr.cloud}`) && PathPrefix(`/radar`)
+      - traefik.http.routers.launch-radar.entrypoints=websecure
+      - traefik.http.routers.launch-radar.tls=true
+      - traefik.http.routers.launch-radar.tls.certresolver=letsencrypt
+      - traefik.http.routers.launch-radar.middlewares=launch-radar-slash,launch-radar-strip
+      # /radar -> /radar/ (the page loads its data with relative links), then strip /radar for the app
+      - traefik.http.middlewares.launch-radar-slash.redirectregex.regex=^(https?://[^/]+/radar)$$
+      - traefik.http.middlewares.launch-radar-slash.redirectregex.replacement=$${1}/
+      - traefik.http.middlewares.launch-radar-slash.redirectregex.permanent=true
+      - traefik.http.middlewares.launch-radar-strip.stripprefix.prefixes=/radar
+      - traefik.http.services.launch-radar.loadbalancer.server.port=8010
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+volumes:
+  radar_data:

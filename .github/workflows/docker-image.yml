@@ -1,0 +1,38 @@
+# Builds the scanner image on every push to master and publishes it to GitHub Container Registry.
+# The VPS (docker-compose.yaml) only pulls this ready-made image - nothing is built on the VPS.
+name: Docker image
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tests
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -q
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/sudeep-sasikumar/launchradar:latest
+          build-args: APP_VERSION=${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/sudeep-sasikumar/LaunchRadar
