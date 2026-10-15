@@ -77,8 +77,8 @@ CARD = [
     # fair launch (24) - the GMGN-style checks
     ("no bundle",             5, lambda f: ramp(f.get("launch_slot0_pct"), 12, 0)),
     ("few snipers",           3, lambda f: ramp(f.get("launch_sniper_pct"), 15, 2)),
-    ("few insiders",          4, lambda f: ramp(f.get("gm_insider_pct"), 25, 2)),
-    ("few phishing wallets",  4, lambda f: ramp(f.get("gm_phishing_pct"), 25, 2) if f.get("gm_phishing_pct") is not None
+    ("few insiders",          4, lambda f: ramp(f.get("hx_insider_pct"), 25, 2)),
+    ("few phishing wallets",  4, lambda f: ramp(f.get("hx_phishing_pct"), 25, 2) if f.get("hx_phishing_pct") is not None
                                            else ramp(f.get("launch_phantom_sold_pct"), 3, 0)),
     ("dev not dumping",       3, lambda f: ramp(f.get("launch_dev_sold_pct"), 50, 0)),
     ("dev bag modest",        2, lambda f: ramp(f.get("launch_dev_hold_pct"), 15, 3)),
@@ -192,10 +192,10 @@ def gate(f: dict, cfg, learned: bool = False, final: bool = False) -> str | None
         return f"creator launched {f['cr_day_n']} coins in 24 h"
     if (f.get("wq_toxic_share") or 0) > 0.4:
         return "early buyers are mostly known toxic wallets"
-    if (f.get("gm_insider_pct") or 0) > g["max_insider_pct"]:
-        return f"insiders hold {f['gm_insider_pct']:.0f}%"
-    if (f.get("gm_phishing_pct") or 0) > g["max_phishing_pct"]:
-        return f"phishing wallets hold {f['gm_phishing_pct']:.0f}%"
+    if (f.get("hx_insider_pct") or 0) > g["max_insider_pct"]:
+        return f"insiders hold {f['hx_insider_pct']:.0f}%"
+    if (f.get("hx_phishing_pct") or 0) > g["max_phishing_pct"]:
+        return f"phishing wallets hold {f['hx_phishing_pct']:.0f}%"
     if (f.get("gm_rug_ratio") or 0) > g["max_rug_ratio"]:
         return f"GMGN rug ratio {f['gm_rug_ratio']:.2f}"
     made, ratio = f.get("gm_creator_created_n"), f.get("gm_creator_open_ratio")

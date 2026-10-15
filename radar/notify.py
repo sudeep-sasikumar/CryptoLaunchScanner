@@ -201,8 +201,8 @@ def call_text(tok, f: dict, prior: float, prob: float | None, model_ver: str | N
         dev += f" (sold {f['launch_dev_sold_pct']:.0f}% of bag)"
     elif f.get("gm_dev_closed") is not None:
         dev += " (closed)" if f["gm_dev_closed"] else " (holding)"
-    lines.append(f"Top10 {pct('dist_top10_with_dev_pct')} · Dev {dev} · Insiders {pct('gm_insider_pct')} · "
-                 f"Phishing {pct('gm_phishing_pct')} · Bundler {pct('launch_slot0_pct')} · Snipers {pct('launch_sniper_pct')}")
+    lines.append(f"Top10 {pct('dist_top10_with_dev_pct')} · Dev {dev} · Insiders {pct('hx_insider_pct')} · "
+                 f"Phishing {pct('hx_phishing_pct')} · Bundler {pct('launch_slot0_pct')} · Snipers {pct('launch_sniper_pct')}")
     sec = []
     if f.get("sec_checked"):
         sec.append("no honeypot" if not f.get("sec_honeypot") else "HONEYPOT FLAG")

@@ -125,6 +125,8 @@ class PumpToken:
         self.security: dict | None = None     # filled by the contract check (GoPlus, when GMGN is off)
         self.gm: dict | None = None           # GMGN's token page as factors (latest)
         self.gm_feed: dict | None = None      # what GMGN's launch feed said (socials, reuse)
+        self.cx: tuple | None = None          # (time, Codex holder picture) from the batch refresh
+        self.gti = None                       # GeckoTerminal token info (unused for pump.fun coins)
         self.meta_requested = False
         self.seen: dict = {}                  # name / symbol / uri counts at creation
         self.called = False
@@ -376,6 +378,8 @@ class DexToken:
     gm: dict | None = None                          # GMGN's token page as factors (latest)
     gm_feed: dict | None = None                     # what GMGN's launch feed said (socials, reuse)
     on_curve: bool | None = None                    # still on a bonding curve (from the launch feed)
+    cx: tuple | None = None                         # (time, Codex holder picture) from the batch refresh
+    gti: dict | None = None                         # GeckoTerminal token info
 
     def on_pair(self, ts: float, pair: dict) -> list[tuple[Label, str]]:
         try:

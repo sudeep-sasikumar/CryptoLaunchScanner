@@ -76,6 +76,17 @@ sources:
       bsc:       {poll_s: 10, platforms: [fourmeme, fourmeme_agent, bn_fourmeme, four_xmode_agent, flap, flap_stocks, clanker, lunafun]}
       base:      {poll_s: 15, platforms: [clanker, bankr, flaunch, zora, zora_creator, baseapp, basememe, virtuals_v2, klik]}
   rugcheck: {enabled: true, calls_per_min: 12}     # Solana holders / insiders / risk flags (limit 15)
+  # GMGN-like holder data from other services - each optional, each with its own key (see README):
+  codex:                     # CODEX_API_KEY - every chain: holders, top 10, snipers, bundlers, insiders, dev
+    enabled: true            # free plan: 10,000 requests a month (one-time $1 activation), up to 200 tokens a request
+    calls_per_day: 300       # stays inside the monthly allowance
+    max_per_sec: 2
+    batch_every_s: 900       # refresh every live token in batches of 200; the rest of the budget goes to call candidates
+  solanatracker:             # SOLANATRACKER_API_KEY - Solana: snipers, bundlers, insiders, top 10, dev, LP burn
+    enabled: true            # free plan: 10,000 requests a month
+    calls_per_day: 300       # spent on call candidates only
+    max_per_sec: 2
+  gecko_info: {enabled: true}   # no key: holder count, mint / freeze authority, honeypot, GeckoTerminal score
   goplus:   {enabled: true, calls_per_min: 25}     # honeypot / tax / owner / mint / freeze checks, all chains incl. Solana
   metadata: {enabled: true, concurrency: 8, timeout_s: 6, image_hash: true, telegram_members: true}
   llm:                       # optional: Claude rates the meme / narrative (needs ANTHROPIC_API_KEY)

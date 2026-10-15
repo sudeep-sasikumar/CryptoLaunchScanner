@@ -102,6 +102,10 @@ class Security:
             "rc_creator_tokens_n": len(d.get("creatorTokens") or []),
             "rc_liq_usd": _f(d.get("totalMarketLiquidity")),
             "_risks": [r.get("name") for r in risks][:5],
+            # for the shared factors (features.apply_intel): the largest account is the curve / pool, skipped
+            "n_holders": _f(d.get("totalHolders")),
+            "n_top10_pct": sum(_f(h.get("pct")) or 0 for h in top[1:11]) if len(top) > 1 else None,
+            "n_dev_pct": _pct_of(d.get("creatorBalance"), (d.get("token") or {}).get("supply")),
         }
 
     async def goplus_solana(self, mint: str) -> dict | None:

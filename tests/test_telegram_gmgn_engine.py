@@ -81,7 +81,7 @@ class FakeGmgn:
 
 def _engine(tmp_path):
     e = Engine(cfg(f"app.data_dir={tmp_path.as_posix()};dashboard.enabled=false;sources.metadata.enabled=false;"
-                   "sources.rugcheck.enabled=false;sources.goplus.enabled=false;sources.llm.enabled=false;"
+                   "sources.rugcheck.enabled=false;sources.goplus.enabled=false;sources.gecko_info.enabled=false;sources.llm.enabled=false;"
                    "call.min_prior=40"))
     e.quotes.usd[SYSTEM] = (100.0, time.time() + 1e6)
     return e

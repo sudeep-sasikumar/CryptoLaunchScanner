@@ -1,0 +1,518 @@
+{
+ "solanatracker_token": {
+  "token": {
+   "name": "OFFICIAL TRUMP",
+   "symbol": "TRUMP",
+   "mint": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+   "uri": "https://arweave.net/cSCP0h2n1crjeSWE9KF-XtLciJalDNFs7Vf-Sm0NNY0",
+   "decimals": 6,
+   "description": "",
+   "image": "https://image.solanatracker.io/proxy?url=https%3A%2F%2Farweave.net%2FVQrPjACwnQRmxdKBTqNwPiyo65x7LAT773t8Kd7YBzw",
+   "hasFileMetaData": true,
+   "strictSocials": {},
+   "creation": {
+    "creator": "5e2qRc1DNEXmyxP8qwPwJhRWjef7usLyi7v5xjqLr5G7",
+    "created_tx": "3RVpxfaDscntzr4abnmjkkN1cDPthzpxG3Pgt6PksmvhzNDFXxCPPxnKByjPJK4vsmXueD3zxuhYq5PpwCuyigLR",
+    "created_time": 1737122459
+   }
+  },
+  "pools": [
+   {
+    "poolId": "9d9mb8kooFfaD3SctgZtkxQypkshx6ezhbKio89ixyy2",
+    "liquidity": {
+     "quote": 163156924.893183,
+     "usd": 288082595.6380103
+    },
+    "price": {
+     "quote": 5.933132498211121,
+     "usd": 5.933132498211121
+    },
+    "tokenSupply": 999999284.625164,
+    "lpBurn": 0,
+    "tokenAddress": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "marketCap": {
+     "quote": 5933128253.797433,
+     "usd": 5933128253.797433
+    },
+    "market": "meteora-dlmm",
+    "quoteToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "decimals": 6,
+    "security": {
+     "freezeAuthority": null,
+     "mintAuthority": null
+    },
+    "lastUpdated": 1760273710048,
+    "createdAt": 1737196771000,
+    "deployer": "FbMxP3GVq8TQ36nbYgx4NP9iygMpwAwFWJwW81ioCiSF",
+    "txns": {
+     "buys": 1537568,
+     "sells": 1372762,
+     "total": 2910330,
+     "volume": 15790393731,
+     "volume24h": 51264548
+    }
+   },
+   {
+    "poolId": "GQsPr4RJk9AZkkfWHud7v4MtotcxhaYzZHdsPCg9vNvW",
+    "liquidity": {
+     "quote": 1351.2204397375483,
+     "usd": 245213.24614468566
+    },
+    "price": {
+     "quote": 0.03273717521157278,
+     "usd": 5.94099139352593
+    },
+    "tokenSupply": 999999284.625164,
+    "lpBurn": 0,
+    "tokenAddress": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "marketCap": {
+     "quote": 32737151.792221434,
+     "usd": 5940987143.490187
+    },
+    "market": "raydium-clmm",
+    "quoteToken": "So11111111111111111111111111111111111111112",
+    "decimals": 6,
+    "security": {
+     "freezeAuthority": null,
+     "mintAuthority": null
+    },
+    "deployer": "AshdxLbGf43Eau3wh3WmYCx41NByS2K3KAKDyeR15Q5Z",
+    "lastUpdated": 1760273584285,
+    "txns": {
+     "buys": 160076,
+     "sells": 127901,
+     "total": 287977,
+     "volume": 168500298,
+     "volume24h": 15138
+    }
+   },
+   {
+    "poolId": "6XMrsTeFC8gYmVasKaBuVwU4fyAVPJLHd8jno82JBhS5",
+    "liquidity": {
+     "quote": 87.537012677,
+     "usd": 172016.0568152496
+    },
+    "price": {
+     "quote": 0.03273721974179111,
+     "usd": 5.944069526895269
+    },
+    "tokenSupply": 999999284.625164,
+    "lpBurn": 0,
+    "tokenAddress": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "marketCap": {
+     "quote": 32737196.32240791,
+     "usd": 5944065274.657506
+    },
+    "market": "meteora-dlmm",
+    "quoteToken": "So11111111111111111111111111111111111111112",
+    "decimals": 6,
+    "security": {
+     "freezeAuthority": null,
+     "mintAuthority": null
+    },
+    "lastUpdated": 1760273605803,
+    "deployer": "3BumMudVscCz5dkAWu9icPvumKgkv29oqfkR4TH8E3Wj",
+    "txns": {
+     "buys": 68069,
+     "sells": 56865,
+     "total": 124934,
+     "volume": 32724884,
+     "volume24h": 92005
+    }
+   },
+   {
+    "poolId": "A8nPhpCJqtqHdqUk35Uj9Hy2YsGXFkCZGuNwvkD3k7VC",
+    "liquidity": {
+     "quote": 4721.045733,
+     "usd": 128437.94187711722
+    },
+    "price": {
+     "quote": 5.877660989467864,
+     "usd": 5.877660989467864
+    },
+    "tokenSupply": 999999284.769803,
+    "lpBurn": 0,
+    "tokenAddress": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "marketCap": {
+     "quote": 5877656785.587236,
+     "usd": 5877656785.587236
+    },
+    "market": "meteora-dlmm",
+    "quoteToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "decimals": 6,
+    "security": {
+     "freezeAuthority": null,
+     "mintAuthority": null
+    },
+    "lastUpdated": 1760257059894,
+    "deployer": "8tKLhRyFC3RsQ41APTqKdzr9DdeGqV2RtRgSjVgsY4xb"
+   },
+   {
+    "poolId": "4CTUHtiHrPHFT4Zc1qNScrposmM7xfupU7EVDWCR7PZw",
+    "liquidity": {
+     "quote": 71.724546383,
+     "usd": 118723.71913647697
+    },
+    "price": {
+     "quote": 0.0316095901275261,
+     "usd": 5.669026467226503
+    },
+    "tokenSupply": 999999284.769804,
+    "lpBurn": 0,
+    "tokenAddress": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "marketCap": {
+     "quote": 31609567.51939276,
+     "usd": 5669022412.567592
+    },
+    "market": "meteora-dlmm",
+    "quoteToken": "So11111111111111111111111111111111111111112",
+    "decimals": 6,
+    "security": {
+     "freezeAuthority": null,
+     "mintAuthority": null
+    },
+    "lastUpdated": 1760242676452,
+    "deployer": "GpQkufRFxppWwSNGbb9tWGPXMAzxVE8742A6dFymVrzz"
+   },
+   {
+    "poolId": "71HuFmuYAFEFUna2x2R4HJjrFNQHGuagW3gUMFToL9tk",
+    "liquidity": {
+     "quote": 85.53844518,
+     "usd": 114253.46290628676
+    },
+    "price": {
+     "quote": 0.03269612803342082,
+     "usd": 5.938492562447858
+    },
+    "tokenSupply": 999999284.625164,
+    "lpBurn": 0,
+    "tokenAddress": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "marketCap": {
+     "quote": 32696104.64343359,
+     "usd": 5938488314.199716
+    },
+    "market": "meteora-dlmm",
+    "quoteToken": "So11111111111111111111111111111111111111112",
+    "decimals": 6,
+    "security": {
+     "freezeAuthority": null,
+     "mintAuthority": null
+    },
+    "lastUpdated": 1760273687022,
+    "createdAt": 1737175011000,
+    "deployer": "9Y7KcsQ8XvkAdFpTDQpeTQtqMxcVXvFWEi66R7872kr1"
+   },
+   {
+    "poolId": "6nD6d8gG17wakW6Wu5URktBZQp3uxp5orgPa576QXigJ",
+    "liquidity": {
+     "quote": 67062.34613728749,
+     "usd": 67062.34613728749
+    },
+    "price": {
+     "quote": 5.94274968495953,
+     "usd": 5.94274968495953
+    },
+    "tokenSupply": 999999284.625164,
+    "lpBurn": 0,
+    "tokenAddress": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "marketCap": {
+     "quote": 5942745433.665944,
+     "usd": 5942745433.665944
+    },
+    "market": "orca",
+    "quoteToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "decimals": 6,
+    "security": {
+     "freezeAuthority": null,
+     "mintAuthority": null
+    },
+    "lastUpdated": 1760273210659,
+    "deployer": null
+   },
+   {
+    "poolId": "3C5YE97HADPDxZehYq9Cis8AXr9aNyrUsczKzE1nDbW9",
+    "liquidity": {
+     "quote": 6574.626468,
+     "usd": 38535.76041617216
+    },
+    "price": {
+     "quote": 7.39644638653891,
+     "usd": 7.39644638653891
+    },
+    "tokenSupply": 999999284.896951,
+    "lpBurn": 0,
+    "tokenAddress": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "marketCap": {
+     "quote": 7396441097.317547,
+     "usd": 7396441097.317547
+    },
+    "market": "meteora-dlmm",
+    "quoteToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "decimals": 6,
+    "security": {
+     "freezeAuthority": null,
+     "mintAuthority": null
+    },
+    "lastUpdated": 1760158461660,
+    "deployer": "BhHHQP4z4QUebvtkGinNK8vLfdz2XqshLmunAGjexoHW"
+   },
+   {
+    "poolId": "3DDBu1BGiYTYbCqvKRHJCMQngLNSJCrHffBEFnPUWf2d",
+    "liquidity": {
+     "quote": 7.965915371,
+     "usd": 37391.8112659748
+    },
+    "price": {
+     "quote": 0.0370389514095551,
+     "usd": 7.810074892852679
+    },
+    "tokenSupply": 999999289.46288,
+    "lpBurn": 0,
+    "tokenAddress": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "marketCap": {
+     "quote": 37038925.09200524,
+     "usd": 7810069343.504558
+    },
+    "market": "meteora-dlmm",
+    "quoteToken": "So11111111111111111111111111111111111111112",
+    "decimals": 6,
+    "security": {
+     "freezeAuthority": null,
+     "mintAuthority": null
+    },
+    "lastUpdated": 1759160918306,
+    "deployer": "2F19ZXrvQDCoYXdBoFBiBcEmgrAKYAheZHnQxZksHQhN"
+   },
+   {
+    "poolId": "4VcH2kQJQMwqyz4zUTrev7dunA3Bd7Lukk1mZRcjmCiH",
+    "liquidity": {
+     "quote": 22544.692804,
+     "usd": 32401.1227584886
+    },
+    "price": {
+     "quote": 5.826601104221026,
+     "usd": 5.826601104221026
+    },
+    "tokenSupply": 999999284.822781,
+    "lpBurn": 0,
+    "tokenAddress": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+    "marketCap": {
+     "quote": 5826596937.168652,
+     "usd": 5826596937.168652
+    },
+    "market": "meteora-dlmm",
+    "quoteToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "decimals": 6,
+    "security": {
+     "freezeAuthority": null,
+     "mintAuthority": null
+    },
+    "lastUpdated": 1760220740059,
+    "deployer": "37DNtRjt4K7VcZZUGsdcCv8VPYvbcg9pW2zqWNBBii7W"
+   }
+  ],
+  "events": {
+   "1m": {
+    "priceChangePercentage": -0.49751243781096
+   },
+   "5m": {
+    "priceChangePercentage": 0.5
+   },
+   "15m": {
+    "priceChangePercentage": 0.5
+   },
+   "30m": {
+    "priceChangePercentage": 0.5
+   },
+   "1h": {
+    "priceChangePercentage": 0.5
+   },
+   "2h": {
+    "priceChangePercentage": 1.0025
+   },
+   "3h": {
+    "priceChangePercentage": 1.5075125
+   },
+   "4h": {
+    "priceChangePercentage": 1.5075125
+   },
+   "5h": {
+    "priceChangePercentage": 1.5075125
+   },
+   "6h": {
+    "priceChangePercentage": 1.5075125
+   },
+   "12h": {
+    "priceChangePercentage": 3.0377509393766
+   },
+   "24h": {
+    "priceChangePercentage": -3.9114796198453
+   }
+  },
+  "risk": {
+   "snipers": {
+    "count": 0,
+    "totalBalance": 0,
+    "totalPercentage": 0,
+    "wallets": []
+   },
+   "bundlers": {
+    "count": 1,
+    "totalBalance": 35.766665,
+    "totalPercentage": 0,
+    "totalInitialBalance": 0,
+    "totalInitialPercentage": 0,
+    "wallets": [
+     {
+      "wallet": "8sVTrS9sLF1f7TW1UBhpkpZ4oU1RgvWjUmuHcbpPP1iA",
+      "initialBalance": 0,
+      "initialPercentage": 0,
+      "balance": 35.766665,
+      "percentage": 3.5766665e-06,
+      "bundleTime": 1768493998929
+     }
+    ]
+   },
+   "insiders": {
+    "count": 0,
+    "totalBalance": 0,
+    "totalPercentage": 0,
+    "wallets": []
+   },
+   "top10": 88.9709,
+   "dev": {
+    "percentage": 0,
+    "amount": 1e-05
+   },
+   "fees": {
+    "jito": 149.856522498,
+    "network": 5.313206293,
+    "axiom": 10.692949336,
+    "helius-sender": 0.740285683,
+    "bullx": 0.221519535,
+    "photon": 0.617380652,
+    "trojan": 8.475057232,
+    "vector": 0.034835605,
+    "bloom": 0.005161776,
+    "0slot": 3.822111764,
+    "nextblock": 2.441224263,
+    "soltradingbot": 0.008325315,
+    "maestro": 1.455125852,
+    "padre": 0.001991644,
+    "totalTrading": 21.512346947000005,
+    "totalTips": 162.17335050100002,
+    "total": 183.68569744800004
+   },
+   "rugged": false,
+   "risks": [],
+   "score": 0,
+   "jupiterVerified": true
+  },
+  "buys": 155,
+  "sells": 55,
+  "txns": 210,
+  "holders": 673795
+ },
+ "geckoterminal_info_factor": {
+  "address": "0x47c5ea4d85c4c1a81f26124580a80b0b7a581cc0",
+  "name": "Factor",
+  "symbol": "FACTOR",
+  "decimals": 18,
+  "banner_image_url": null,
+  "coingecko_coin_id": null,
+  "websites": [
+   "https://factoragents.fun"
+  ],
+  "discord_url": null,
+  "farcaster_url": null,
+  "zora_url": null,
+  "telegram_handle": null,
+  "twitter_handle": "FactorAgents",
+  "description": "Advances for AI agents. A customer locks the price of a job, the agent draws up to half before it delivers, and the job repays it. Trading fees fill the pool and buy back and burn $FACTOR.",
+  "gt_score": 48.82539682539682,
+  "gt_score_details": {
+   "pool": 50.667,
+   "transaction": 48.0,
+   "creation": 0.0,
+   "info": 60.0,
+   "holders": 42.5
+  },
+  "gt_verified": false,
+  "categories": [],
+  "gt_category_ids": [],
+  "holders": {
+   "count": 285,
+   "distribution_percentage": {
+    "top_10": "55.6724",
+    "11_30": "22.237",
+    "31_50": "8.8911",
+    "rest": "13.1995"
+   },
+   "last_updated": "2026-10-15T17:34:50Z"
+  },
+  "mint_authority": null,
+  "freeze_authority": null,
+  "is_honeypot": false,
+  "developer_address": "0xff54ebc9c6871fb1c5c9e03ac45250488d923f79",
+  "developer_holding_percentage": "0.0",
+  "launchpad_details": {
+   "graduation_percentage": 100.0,
+   "completed": true,
+   "completed_at": "2026-10-14T18:02:20.000Z",
+   "migrated_destination_pool_address": "0x34bdb5a80b74cfc85760aa0e9f40375e2b38c495bb6c05ab675627191a91c6ee"
+  }
+ },
+ "geckoterminal_info_pump": {
+  "address": "9KRWDRErX8nL59dXku2MvkAUGGJ7USbHF1JsTF2fpump",
+  "name": "The Phoenix Theory",
+  "symbol": "PHOENIX",
+  "decimals": 6,
+  "banner_image_url": null,
+  "coingecko_coin_id": null,
+  "websites": [
+   "https://otcdesks.cash/coin/9KRWDRErX8nL59dXku2MvkAUGGJ7USbHF1JsTF2fpump"
+  ],
+  "discord_url": null,
+  "farcaster_url": null,
+  "zora_url": null,
+  "telegram_handle": null,
+  "twitter_handle": "TheCryptoSquire/status/2110434461611373030",
+  "description": null,
+  "gt_score": 28.051948051948056,
+  "gt_score_details": {
+   "pool": 42.857,
+   "transaction": 0.0,
+   "creation": 0.0,
+   "info": 60.0,
+   "holders": 37.5
+  },
+  "gt_verified": false,
+  "categories": [
+   "Pump Fun"
+  ],
+  "gt_category_ids": [
+   "pump-fun"
+  ],
+  "holders": {
+   "count": 18,
+   "distribution_percentage": {
+    "top_10": "99.9809",
+    "11_20": "0.0129",
+    "21_40": null,
+    "rest": "0.0062"
+   },
+   "last_updated": "2026-10-15T18:20:17Z"
+  },
+  "mint_authority": "no",
+  "freeze_authority": "no",
+  "is_honeypot": "unknown",
+  "developer_address": "whamNNP9tHoxLg92yHvJPdYhghEoCg1qYTsh5a2oLbx",
+  "developer_holding_percentage": "0.0",
+  "launchpad_details": {
+   "graduation_percentage": 3.19,
+   "completed": false,
+   "completed_at": null,
+   "migrated_destination_pool_address": null
+  }
+ }
+}

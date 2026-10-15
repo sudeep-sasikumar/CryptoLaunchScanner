@@ -19,7 +19,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 from . import model as learner
 from .db import DB
-from .features import apply_gmgn, dex_features, norm_name, pump_features, trade_features
+from .features import apply_gmgn, apply_intel, dex_features, norm_name, pump_features, trade_features
 from .http import Http
 from .llm import Narrator
 from .notify import Telegram, call_text, esc, message_ids, money
@@ -27,6 +27,7 @@ from .scoring import gate, prior_score
 from .sources.dexscreener import SYSTEM, DexScreener, QuoteBook
 from .sources.gecko import Gecko, canonical_launchpad
 from .sources.gmgn import OURS, Gmgn, from_trenches
+from .sources.intel import Codex, GeckoInfo, SolanaTracker
 from .sources.metadata import Metadata
 from .sources.pump_stream import PumpStream
 from .sources.security import Security
@@ -47,10 +48,13 @@ class Engine:
         self.dexs = DexScreener(self.http, src.dexscreener.calls_per_min)
         self.quotes = QuoteBook(self.http, self.dexs, src.pump.rpc_url, self.db)
         self.gecko = Gecko(self.http, src.gecko, cfg.secret("COINGECKO_DEMO_API_KEY"), list(src.launchpad_names))
+        self.gtinfo = GeckoInfo(self.gecko, src.gecko_info)
         self.security = Security(self.http, src)
         self.metadata = Metadata(src.metadata, self.db)
         self.narrator = Narrator(src.llm, cfg.secret("ANTHROPIC_API_KEY"), self.db)
         self.gmgn = Gmgn(src.gmgn, cfg.secret("GMGN_API_KEY"))
+        self.codex = Codex(self.http, src.codex, cfg.secret("CODEX_API_KEY"), self.db)
+        self.stracker = SolanaTracker(self.http, src.solanatracker, cfg.secret("SOLANATRACKER_API_KEY"), self.db)
         self.telegram = Telegram(cfg.telegram, cfg.secret("TELEGRAM_BOT_TOKEN"), cfg.secret("TELEGRAM_CHAT_ID"), self.db)
         self.rep = Reputation(self.db, cfg.learn.wallets)
         self.telegram.on_command = self.command
@@ -111,6 +115,8 @@ class Engine:
         if self.gmgn.enabled:
             loops += [self.gmgn_feed_loop(name) for name in self.cfg.sources.gmgn.chains]
         loops.append(self.telegram.poll_commands())
+        if self.codex.enabled:
+            loops.append(self.codex_loop())
         if self.cfg.dashboard.enabled:
             from .web.server import serve
             loops.append(serve(self))
@@ -399,6 +405,8 @@ class Engine:
             if solana:
                 jobs.append(self.security.rugcheck(tok.address))   # holders, insiders, creator - refreshed per snapshot
         n_sec = len(jobs)
+        if not (tok.gm or {}).get("gm_ok") and tok.gti is None:
+            jobs.append(self.gtinfo.lookup(tok.chain, tok.address, max_backlog_s=15))
         want_trades = tok.trades is None and not self.gecko.busy() and tok.pool
         if want_trades:
             jobs.append(self.gecko.trades(tok.chain, tok.pool))     # first buyers: bundles and wallet reputation
@@ -417,6 +425,9 @@ class Engine:
                     tok.security = {**(tok.security or {}), **r}
         if want_trades and isinstance(res[-1], list) and res[-1]:
             tok.trades = trade_features(res[-1], tok.address)
+        for r in res[n_sec:]:
+            if isinstance(r, dict) and r.get("gti_ok"):
+                tok.gti = r
         sec = {**(tok.security or {}), "_creator": (tok.gm or {}).get("_gm_creator") or (tok.security or {}).get("_creator")}
         if tok.meta is None and self.cfg.sources.metadata.enabled:
             # Solana tokens publish a metadata document like pump.fun coins do; otherwise the DexScreener profile
@@ -441,6 +452,7 @@ class Engine:
         self._paid_flags(tok)
         f = dex_features(tok, cp, now, ctx)
         apply_gmgn(f, tok.gm, tok.gm_feed, own_trades=False)
+        apply_intel(f, [self._fresh_cx(tok), tok.gti])
         self._record(tok, cp, now, f, tok.price)
 
     def _record(self, tok, cp: int, now: float, f: dict, price: float) -> None:
@@ -464,6 +476,8 @@ class Engine:
         tok.snapshots += 1
         self.counts["snapshots"] += 1
         self._save_token(tok, now)
+        if isinstance(tok, PumpToken) and not self.gmgn.enabled:
+            apply_intel(f, [self._fresh_cx(tok)])
         if isinstance(tok, PumpToken) and self.gmgn.enabled:
             # the trade-stream factors are frozen at this second; GMGN's view of the token is added
             # as soon as it answers (about a second), then the call decision is made
@@ -480,6 +494,41 @@ class Engine:
         near = cut * 0.8 if kind == "prob" else cut - self.cfg.call.enrich_margin
         if value is not None and value >= near:
             self.spawn(self._consider(tok, lb, snap_id, f, now))
+
+    def _fresh_cx(self, tok) -> dict | None:
+        """Codex batch data for a token, if recent enough to describe the token now."""
+        ts, data = tok.cx or (0.0, None)
+        return data if data and time.time() - ts <= 2 * self.cfg.sources.codex.batch_every_s else None
+
+    async def _codex_one(self, tok) -> dict | None:
+        address = tok.mint if isinstance(tok, PumpToken) else tok.address
+        r = (await self.codex.lookup_many([(tok.chain, address)])).get(address.lower())
+        if r:
+            tok.cx = (time.time(), r)
+        return r
+
+    async def codex_loop(self) -> None:
+        """Refresh Codex's holder picture for live tokens in batches of 200 - tokens that already have a
+        snapshot first, newest first - keeping most of the daily budget for call candidates."""
+        every = self.cfg.sources.codex.batch_every_s
+        while True:
+            await asyncio.sleep(every)
+            try:
+                if self.codex.budget.left() < 50:
+                    continue
+                live = [t for t in list(self.pump.values()) + list(self.dex.values())
+                        if not t.tainted and (t.snapshots or (isinstance(t, PumpToken) and t.n_buys >= 12))]
+                live.sort(key=lambda t: (-int(bool(t.snapshots)), -t.created_ts))
+                batch = live[:200]
+                got = await self.codex.lookup_many(
+                    [(t.chain, t.mint if isinstance(t, PumpToken) else t.address) for t in batch])
+                now = time.time()
+                for t in batch:
+                    r = got.get((t.mint if isinstance(t, PumpToken) else t.address).lower())
+                    if r:
+                        t.cx = (now, r)
+            except Exception:   # noqa: BLE001
+                log.exception("Codex batch failed")
 
     async def _gm_fetch(self, tok) -> dict | None:
         """GMGN's numbers for a token; contract safety is fetched once, the rest refreshed each time."""
@@ -498,6 +547,7 @@ class Engine:
     async def _enrich_pump(self, tok: PumpToken, lb: Label, snap_id: int, f: dict, t0: float) -> None:
         g = await self._gm_fetch(tok)
         apply_gmgn(f, g, tok.gm_feed, own_trades=True)
+        apply_intel(f, [self._fresh_cx(tok)])
         prior, _, _ = prior_score(f)
         m = self.models[ALL]
         prob = m.predict(f) if m is not None else None
@@ -513,17 +563,22 @@ class Engine:
         """Slow pre-call checks on a near-miss or better, then the final decision."""
         fam = tok.family
         jobs = []
+        address = tok.address if fam == "dex" else tok.mint
         if tok.chain == "solana" and "rc_score" not in f:
-            jobs.append(self.security.rugcheck(tok.address if fam == "dex" else tok.mint))
+            jobs.append(self.security.rugcheck(address))
+        if tok.chain == "solana" and "st_ok" not in f:
+            jobs.append(self.stracker.lookup(tok.chain, address))
+        if "cx_ok" not in f and self.codex.enabled:
+            jobs.append(self._codex_one(tok))
+        if "gti_ok" not in f and not f.get("gm_ok"):
+            jobs.append(self.gtinfo.lookup(tok.chain, address, max_backlog_s=20))
         if not f.get("sec_checked"):                       # never call a coin whose contract was not checked
             jobs.append(self._safety_retry(tok, f))
         if self.narrator.enabled and "llm" not in (tok.meta or {}):
             jobs.append(self._rate(tok))
         if jobs:
             res = await asyncio.gather(*jobs, return_exceptions=True)
-            for r in res:
-                if isinstance(r, dict):
-                    f.update(r)
+            apply_intel(f, [r for r in res if isinstance(r, dict)])
         for k, v in ((tok.meta or {}).get("llm") or {}).items():
             f[("_llm" if k.startswith("_") else "llm_") + k] = v
         prior, good, bad = prior_score(f)
@@ -564,12 +619,12 @@ class Engine:
         if not f.get("sec_checked"):
             if isinstance(tok, PumpToken):
                 await self._fetch_safety(tok)
-                f.update({k: v for k, v in (tok.security or {}).items() if not k.startswith("_")})
+                f.update({k: v for k, v in (tok.security or {}).items() if not k.startswith(("_", "n_"))})
             else:
                 r = await (self.security.goplus_solana(tok.address) if tok.chain == "solana"
                            else self.security.goplus(tok.chain, tok.address))
                 if r:
-                    f.update({k: v for k, v in r.items() if not k.startswith("_")})
+                    f.update({k: v for k, v in r.items() if not k.startswith(("_", "n_"))})
 
     async def _rate(self, tok) -> dict | None:
         r = await self.narrator.rate(tok)
@@ -966,6 +1021,10 @@ class Engine:
                      **{k: {"calls": v.calls, "errors": v.errors, "rate_limited": v.limited,
                             "backlog_s": round(v.backlog_s(), 1)} for k, v in self.http.limiters.items()}},
             "gmgn": self.gmgn.enabled,
+            "providers": {"gmgn": self.gmgn.enabled, "codex": self.codex.enabled, "solanatracker": self.stracker.enabled,
+                          "gecko_info": self.gtinfo.enabled, "goplus": self.security.go_on, "rugcheck": self.security.rc_on},
+            "budgets_left_today": {"codex": self.codex.budget.left() if self.codex.enabled else None,
+                                   "solanatracker": self.stracker.budget.left() if self.stracker.enabled else None},
             "thresholds": {ALL: self.threshold(now)},
             "models": {ALL: (self.models[ALL].ver if self.models[ALL] else None)},
             "sol_usd": self.quotes.price(SYSTEM), "metadata": {"ok": self.metadata.fetched, "failed": self.metadata.failed},

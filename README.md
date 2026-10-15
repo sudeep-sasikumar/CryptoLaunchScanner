@@ -28,11 +28,10 @@ lets it learn from the runners it missed and the rugs it avoided.
 model (with the launchpad as one of its factors). pump.fun coins get the same contract-safety checks
 as everything else; other launchpads get the same launch-fairness and demand factors as pump.fun.
 What differs is only how much can be seen: pump.fun is read trade by trade from the chain; other
-launchpads arrive through GMGN's launch feed seconds after creation, are priced every 15 s via
-DexScreener, and get their holder picture from GMGN. Every token, pump.fun included, also gets
-GMGN's token page at each snapshot: holders, top 10, dev, insiders, bundlers, phishing wallets,
-snipers, smart money, KOLs, X followers, contract safety. A factor that cannot be measured for a
-launchpad scores neutral.
+launchpads are found through GMGN's launch feed (seconds after creation) or GeckoTerminal, and
+priced every 15 s via DexScreener. Their holder picture (holders, top 10, dev, insiders, bundlers,
+snipers, phishing) comes from whichever holder-data services have a key: GMGN, Codex, Solana
+Tracker, plus keyless GeckoTerminal and RugCheck. A factor no source can measure scores neutral.
 
 ## 2. What "a runner" means here
 
@@ -98,6 +97,9 @@ scanner calls the top 2% of scores from the last 24 h.
 | Solana RPC websocket, pump.fun program logs | Every pump.fun create / trade / graduation, with slot numbers | 150-350 messages/s; measured 23-35 GB/day of download (0.7-1 TB/month), more when the market is busy |
 | GeckoTerminal `new_pools`, `trades` | DEX pools GMGN's feed does not list; first buyers of a pool (for wallet reputation); the only discovery without a GMGN key | ~5 calls/min free (measured), 30 with a free CoinGecko demo key |
 | DexScreener `tokens/v1` | Price / volume / txns for 30 tokens per call, any chain; paid profiles | 300/min documented |
+| **Codex** (`CODEX_API_KEY`) | Every chain incl. Robinhood: holders, top 10, snipers, bundlers, insiders, suspicious wallets, dev - up to 200 tokens per request | free plan 10,000 requests/month after a one-time $1 activation; the scanner keeps to 300/day |
+| **Solana Tracker** (`SOLANATRACKER_API_KEY`) | Solana: snipers, bundlers, insiders, top 10, dev, holders, LP burn, rug flag | free plan 10,000 requests/month; used for call candidates, 300/day |
+| GeckoTerminal token info (no key) | Every chain: holder count, mint / freeze authority, honeypot, trust score. Its top-10 share counts the pool or curve as a holder, so it is kept as its own factor only | shares GeckoTerminal's limit: ~5/min free, 30 with a free CoinGecko demo key |
 | GoPlus | Second contract check for every token (Solana and EVM; Robinhood Chain = chain 4663) | no key |
 | RugCheck | Solana holders, insiders, risk flags when GMGN has no answer | 15/min (was down during testing) |
 | Token metadata + t.me | Socials, image, Telegram members | - |
@@ -106,7 +108,20 @@ PONS is on Robinhood Chain (GMGN platforms `pons_v2`, `pons`); StonkFun deploys 
 LaunchLab on Solana. Which launchpads are watched per chain: `config.yaml` → `sources.gmgn.chains`;
 one name per launchpad across sources: `sources.launchpad_names`.
 
-**Getting the GMGN key (free, about 2 minutes):**
+**Which keys to get.** Each fills what the others miss; none is required.
+
+| Key | Cost | Adds |
+|---|---|---|
+| `COINGECKO_DEMO_API_KEY` | free (coingecko.com/en/api) | 6x more GeckoTerminal lookups: faster discovery, holder counts for most non-pump snapshots |
+| `CODEX_API_KEY` | free plan after a one-time $1 activation (codex.io) | insiders, bundlers, snipers, dev, top 10 on every chain incl. Robinhood |
+| `SOLANATRACKER_API_KEY` | free plan (solanatracker.io) | the same for Solana coins, checked before each call |
+| `GMGN_API_KEY` | free tier, but keeps a $100 balance in your GMGN account | everything above plus phishing wallets, KOLs, X followers, TG calls, creator history, launch feed |
+
+Codex and Solana Tracker were set up from their documentation; no key was available to test them
+live. Codex's docs do not say whether shares come as 0-1 or 0-100, so the scanner detects the
+scale from the first answer and logs it.
+
+**Getting the GMGN key (needs a $100 balance in the GMGN account, about 2 minutes):**
 1. Make a key pair on this PC (read-only use never needs the private half):
    `openssl genpkey -algorithm ed25519 -out gmgn_private.pem`, then
    `openssl pkey -in gmgn_private.pem -pubout`
@@ -144,7 +159,7 @@ printed to the console. `python main.py --minutes 5` runs a 5-minute smoke test;
 
    | Variable | Needed | What |
    |---|---|---|
-   | `GMGN_API_KEY` | strongly recommended | see "Getting the GMGN key" above |
+   | `CODEX_API_KEY`, `SOLANATRACKER_API_KEY`, `COINGECKO_DEMO_API_KEY`, `GMGN_API_KEY` | recommended | holder data - see "Which keys to get" above |
    | `TELEGRAM_BOT_TOKEN` | for alerts | from @BotFather; the Ignition & Coil bot works for alerts |
    | `TELEGRAM_CHAT_ID` | for alerts | your chat id; several chats comma-separated; a group id starts with `-100` |
    | `DASHBOARD_PASSWORD` | for the dashboard | a long password of your choice |
@@ -155,7 +170,7 @@ printed to the console. `python main.py --minutes 5` runs a 5-minute smoke test;
    | `TELEGRAM_COMMANDS` | optional | `true` to answer `/status` `/calls` `/stats` - needs a bot of its own (Ignition & Coil already reads its bot's messages) |
    | `CALLS_PER_HOUR` | optional | most calls in one hour (default 10) |
    | `GMGN_WEIGHT_PER_SEC` | optional | 5 on GMGN's free plan, 20 Plus, 50 Pro |
-   | `SOLANA_WS_URL`, `COINGECKO_DEMO_API_KEY`, `ANTHROPIC_API_KEY`, `DOMAIN` | optional | see `docker-compose.yaml` |
+   | `SOLANA_WS_URL`, `ANTHROPIC_API_KEY`, `DOMAIN` | optional | see `docker-compose.yaml` |
 
 5. Dashboard: `https://srv1479428.hstgr.cloud/radar/` - it shares the hostname and certificate
    that Ignition & Coil already uses. Ignition & Coil keeps everything outside `/radar/`.
@@ -204,19 +219,23 @@ Override without editing the file: `RADAR_OVERRIDES="call.top_pct=1;label.target
 ## 9. Known limits
 
 - **First day = scorecard only.** The hand weights are a starting opinion, not a tested edge.
-- **GMGN is the backbone for launchpads other than pump.fun.** Without `GMGN_API_KEY` they are
-  found through GeckoTerminal 1-2 minutes late, and their insider, phishing, dev and holder figures
-  mostly score neutral. GMGN's free plan (5 weight/s) is enough for the default settings; the
-  public demo key is shared by everyone and was rate-limited almost constantly in testing, so it
-  is not used.
+- **Launchpads other than pump.fun need at least one holder-data key.** Measured with no keys
+  (7-minute live run): contract safety was checked on every snapshot, but holder figures existed
+  for only 4 of 19 non-pump snapshots, because GeckoTerminal's free limit is spent on discovery
+  and RugCheck fails on most brand-new tokens. A free CoinGecko demo key, Codex or Solana Tracker
+  closes most of that gap. GMGN's public demo key is shared by everyone and was rate-limited
+  almost constantly, so it is never used.
+- **Phishing-wallet shares come only from GMGN** (and pump.fun's own count of tokens sold by
+  wallets that never bought). Without GMGN that factor scores neutral outside pump.fun.
 - **GMGN's figures are GMGN's.** Its insider, bundler and phishing labels are its own wallet
   classification; they are stored under `gm_*` names so the learner can test how much they matter.
 - **Off-pump.fun coins are followed by 15-second price snapshots**, not trade by trade; a dev's
   exact share sold is visible only on pump.fun (elsewhere: holding / closed from GMGN).
 - **RugCheck can be unavailable** (it returned errors for every token during testing).
 - **No live X mention counts** (paid API). X followers and Telegram call counts come from GMGN.
-- **The public Solana RPC can drop.** Tokens live during a drop are set aside and never trained on.
-  A free Helius key in `SOLANA_WS_URL` is steadier.
+- **The public Solana RPC can drop.** It dropped 3 times in 7 minutes on 2026-10-15. Tokens live
+  during a drop are set aside and never trained on, so drops cost data. A private RPC websocket in
+  `SOLANA_WS_URL` (for example a free Helius key) should be steadier; not tested here.
 - **A restart loses open tracking.** Unfinished snapshots are set aside, open calls marked expired.
 - **Holder data ignores transfers** on pump.fun (it is rebuilt from trades). Phantom sells and
   RugCheck cover part of the gap.
@@ -234,9 +253,10 @@ radar/features.py        all factors
 radar/scoring.py         vetoes + day-one scorecard
 radar/model.py           learner: time-split test, promotion, threshold, lift tables
 radar/wallets.py         smart / toxic wallet and creator reputation
-radar/sources/           pump.fun stream + decoder, GMGN, GeckoTerminal, DexScreener, GoPlus, RugCheck, metadata
+radar/sources/           pump.fun stream + decoder, GMGN, Codex / Solana Tracker / GeckoTerminal info (intel.py),
+                         GeckoTerminal pools, DexScreener, GoPlus, RugCheck, metadata
 radar/llm.py             optional Claude meme / narrative rating
 radar/notify.py          Telegram (alerts, outcome replies, daily summary, optional commands)
 radar/web/               dashboard
-tests/                   36 tests
+tests/                   45 tests
 ```

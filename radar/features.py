@@ -116,7 +116,7 @@ def pump_features(tok: PumpToken, cp: int, now: float, ctx: dict) -> dict:
     f.update(tok.flags)
     f["quote_kind"] = ctx.get("quote_kind", 3)
     # contract safety, asked of pump.fun coins exactly as of any other token (GoPlus Solana)
-    f.update({k: v for k, v in (tok.security or {}).items() if not k.startswith("_")})
+    f.update({k: v for k, v in (tok.security or {}).items() if not k.startswith(("_", "n_"))})
     if not tok.graduated_ts:
         f["sec_lp_locked_pct"] = 100.0          # liquidity sits in the bonding curve: nobody can pull it
 
@@ -266,6 +266,8 @@ def apply_gmgn(f: dict, g: dict | None, feed: dict | None, own_trades: bool) -> 
         if v is not None and f.get(k) is None:
             f[k] = v
 
+    fill("hx_insider_pct", g.get("gm_insider_pct"))
+    fill("hx_phishing_pct", g.get("gm_phishing_pct"))
     fill("dist_holders", g.get("gm_holders"))
     fill("dist_top10_with_dev_pct", g.get("gm_top10_pct"))
     fill("launch_dev_hold_pct", g.get("gm_dev_hold_pct"))
@@ -303,6 +305,48 @@ def apply_gmgn(f: dict, g: dict | None, feed: dict | None, own_trades: bool) -> 
         f["id_socials_n"] = sum(int(bool(g.get(k))) for k in ("gm_has_x", "gm_has_tg", "gm_has_web"))
         if g.get("gm_has_x"):
             f["id_x_kind"] = 2 if feed.get("gm_x_is_post") else 1
+    return f
+
+
+# which provider stands in first for a shared factor (GMGN is applied before these, our own data before all)
+INTEL_ORDER = ("cx", "st", "gti", "rc")
+
+
+def apply_intel(f: dict, results: list[dict | None]) -> dict:
+    """Add Codex / Solana Tracker / GeckoTerminal / RugCheck results (each under its own names) and fill
+    the shared factor names still empty - same rule as apply_gmgn: measured beats reported."""
+    rs = [r for r in results if r]
+    for r in rs:
+        f.update({k: v for k, v in r.items() if not k.startswith(("_", "n_"))})
+
+    def first(key):
+        for r in rs:
+            if r.get(key) is not None:
+                return r[key]
+        return None
+
+    def fill(k, v):
+        if v is not None and f.get(k) is None:
+            f[k] = v
+
+    fill("dist_holders", first("n_holders"))
+    fill("dist_top10_with_dev_pct", first("n_top10_pct"))
+    fill("launch_dev_hold_pct", first("n_dev_pct"))
+    fill("launch_slot0_pct", first("n_bundler_pct"))
+    fill("launch_sniper_pct", first("n_sniper_pct"))
+    fill("hx_insider_pct", first("n_insider_pct"))
+    # contract safety from Solana Tracker / GeckoTerminal when neither GMGN nor GoPlus answered
+    if not f.get("sec_checked"):
+        mint = first("st_mint_authority") if any("st_ok" in r for r in rs) else first("gti_mint_authority")
+        freeze = first("st_freeze_authority") if any("st_ok" in r for r in rs) else first("gti_freeze_authority")
+        if f.get("chain") == "solana" and mint is not None and freeze is not None:
+            f.update({"sec_checked": 1, "sec_mintable": mint, "sec_blacklist": freeze,
+                      "sec_renounced": int(not mint and not freeze)})
+            fill("sec_honeypot", first("gti_honeypot"))
+    if first("st_rugged"):
+        f["rc_rugged"] = 1                             # the shared "flagged as rugged" safety veto
+    if not f.get("px_on_curve"):
+        fill("sec_lp_locked_pct", first("st_lp_burn_pct"))
     return f
 
 
@@ -369,7 +413,7 @@ def dex_features(tok: DexToken, cp: int, now: float, ctx: dict) -> dict:
     wq = ctx.get("wq") or {}
     f.update({k: v for k, v in wq.items() if not k.startswith("_")})
     s = tok.security or {}
-    f.update({k: v for k, v in s.items() if not k.startswith("_")})
+    f.update({k: v for k, v in s.items() if not k.startswith(("_", "n_"))})
 
     # the same factor names as pump.fun coins, from what this launchpad lets us see
     f["source"] = "poll"

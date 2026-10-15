@@ -9,9 +9,12 @@
 # (Traefik prefers the longer rule, so /radar/ goes here and everything else stays with Ignition & Coil.)
 #
 # Environment variables to enter in Docker Manager (only the first four matter to get going):
-#   GMGN_API_KEY              free, from gmgn.ai/ai - holders, insiders, bundlers, phishing, snipers, dev, smart money,
-#                             socials and launches on every launchpad. Without it the scanner falls back to free
-#                             GeckoTerminal / GoPlus / RugCheck data, which sees much less.
+# Holder data (insiders, bundlers, snipers, dev, top 10) - add any of these; each one fills what the others miss:
+#   CODEX_API_KEY             codex.io, free plan (one-time $1 activation): every chain incl. Robinhood
+#   SOLANATRACKER_API_KEY     solanatracker.io, free plan: Solana tokens
+#   COINGECKO_DEMO_API_KEY    coingecko.com/en/api, free: 6x more GeckoTerminal lookups (holders, discovery)
+#   GMGN_API_KEY              gmgn.ai/ai: the most complete (phishing, KOLs, X followers ...); free tier needs a
+#                             $100 balance kept in the GMGN account
 #   TELEGRAM_BOT_TOKEN        from @BotFather (the Ignition & Coil bot works for alerts)
 #   TELEGRAM_CHAT_ID          your chat id; several chats: comma-separated (a group id starts with -100)
 #   DASHBOARD_PASSWORD        required for the dashboard - pick a long one
@@ -23,7 +26,6 @@
 #   CALLS_PER_HOUR            optional - most calls sent in one hour (default 10)
 #   GMGN_WEIGHT_PER_SEC       optional - 5 on GMGN's free plan, 20 on Plus, 50 on Pro
 #   SOLANA_WS_URL             optional - a private Solana RPC websocket (e.g. free Helius key); steadier than the public one
-#   COINGECKO_DEMO_API_KEY    optional, free - faster GeckoTerminal pool discovery
 #   ANTHROPIC_API_KEY         optional - lets Claude rate each candidate's meme / narrative
 #   DOMAIN                    optional - defaults to this VPS's Hostinger hostname
 services:
@@ -33,6 +35,8 @@ services:
     restart: unless-stopped
     environment:
       GMGN_API_KEY: ${GMGN_API_KEY:-}
+      CODEX_API_KEY: ${CODEX_API_KEY:-}
+      SOLANATRACKER_API_KEY: ${SOLANATRACKER_API_KEY:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       TELEGRAM_THREAD_ID: ${TELEGRAM_THREAD_ID:-}
