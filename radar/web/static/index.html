@@ -31,8 +31,9 @@
   td.num, th.num { text-align:right; }
   .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); } .dim { color:var(--dim); }
   .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; border:1px solid var(--line); }
-  .pill.hit { color:var(--good); border-color:#245c33; } .pill.stopped { color:var(--bad); border-color:#6b2c27; }
-  .pill.open { color:var(--accent); border-color:#234a78; } .pill.expired { color:var(--dim); }
+  .pill.hit, .pill.running, .pill.ran { color:var(--good); border-color:#245c33; }
+  .pill.stopped, .pill.dumped { color:var(--bad); border-color:#6b2c27; }
+  .pill.open, .pill.live { color:var(--accent); border-color:#234a78; } .pill.expired, .pill.fizzled { color:var(--dim); }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin-bottom:6px; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:11px 13px; }
   .card b { display:block; font-size:21px; font-weight:600; margin-top:2px; }
@@ -100,7 +101,9 @@ function table(heads, rows, empty="Nothing yet.") {
   return `<div class="wrap"><table><thead><tr>${heads.map(h => `<th class="${h.startsWith("#")?"num":""}">${esc(h.replace(/^#/,""))}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
 }
 const tokCell = r => `<b>${esc(r.symbol || "?")}</b> <span class="dim">${esc((r.name||"").slice(0,26))}</span>`;
-const score = r => r.prob != null ? `<b>${pct(r.prob)}</b> <span class="dim">/ ${num(r.prior,0)}</span>` : `<b>${num(r.prior,0)}</b><span class="dim">/100</span>`;
+const score = r => r.prob != null ? `<b>${pct(r.prob)}</b> <span class="dim">· score ${num(r.prior,0)}</span>` : `<b>score ${num(r.prior,0)}</b><span class="dim">/100</span>`;
+const STATE = {live: "⏳ Live", running: "🚀 Running", ran: "🚀 Ran", dumped: "📉 Dumped", fizzled: "💤 Fizzled"};
+const fromCall = m => m == null ? "–" : (m >= 1 ? "+" : "") + Math.round((m - 1) * 100) + "%";
 
 async function header() {
   const h = await api("health");
@@ -112,18 +115,27 @@ async function header() {
 const VIEWS = {
   async calls() {
     const rows = await api("calls?limit=200");
-    const closed = rows.filter(r => r.status !== "open"), hits = rows.filter(r => r.status === "hit").length;
+    const runners = rows.filter(r => r.state === "running" || r.state === "ran").length;
+    const settled = rows.filter(r => r.state !== "live").length;
+    const best = rows.reduce((m, r) => Math.max(m, r.peak_mult || 0), 0);
     return `<div class="cards">
       <div class="card"><span>Calls shown</span><b>${rows.length}</b></div>
-      <div class="card"><span>Hit 2x</span><b class="good">${hits}</b></div>
-      <div class="card"><span>Hit rate (closed)</span><b>${closed.length ? pct(hits/closed.length) : "–"}</b></div>
-      <div class="card"><span>Still open</span><b>${rows.length - closed.length}</b></div></div>
-      <p class="note">A call is "hit" when price reached 2x the call price before falling 50% below it. Score shows the model's probability when a model is in use (scorecard after the slash), otherwise the scorecard out of 100. Click a row for every recorded factor.</p>` +
-      table(["When","Token","Launchpad","Age at call","Score","#Mcap at call","Status","#Best","#Time to 2x","Why"], rows.map(r =>
-        `<tr class="click" onclick="tokenModal('${esc(r.token_id)}')"><td>${ago(r.ts)} ago</td><td>${tokCell(r)}</td><td>${esc(r.launchpad||"")}</td><td>${dur(r.cp)}</td>
-         <td>${score(r)}</td><td class="num">${money(r.mcap_usd)}</td><td><span class="pill ${r.status}">${r.status}</span></td>
-         <td class="num ${multCls(r.peak_mult)}">${r.peak_mult?num(r.peak_mult)+"x":"–"}</td><td class="num">${dur(r.t_hit)}</td>
-         <td class="dim">${esc(((r.reasons||{}).good||[]).slice(0,3).join(", "))}</td></tr>`), "No calls yet. The scanner calls only the top slice of launches; it can take a while.");
+      <div class="card"><span>Reached 2x (runners)</span><b class="good">${runners}</b></div>
+      <div class="card"><span>Runner rate (decided calls)</span><b>${settled ? pct(runners/settled) : "–"}</b></div>
+      <div class="card"><span>Still live</span><b>${rows.length - settled}</b></div>
+      <div class="card"><span>Best call</span><b class="good">${best ? num(best,1)+"x" : "–"}</b></div></div>
+      <p class="note"><b>Chance of 2x</b>: the model's estimate that the coin doubles from the call price before it falls to half (the hand scorecard out of 100 is shown beside it).
+      <b>Status</b>: ⏳ Live = not decided yet · 🚀 Running = reached 2x and still being followed · 🚀 Ran = reached 2x, following ended · 📉 Dumped = fell 50% below the call price first · 💤 Fizzled = neither, it went quiet.
+      <b>Mcap now / Now vs call</b> = current market cap and change since the call; for coins no longer followed, where they were when tracking ended (marked "end"). Live does not mean it is still a good entry: check how far it has moved since the call. Click a row for every recorded factor.</p>` +
+      table(["When","Token","Launchpad","Called at","Chance of 2x","#Mcap at call","#Mcap now / at end","#Now vs call","#Best","Status","#Time to 2x","Why"], rows.map(r =>
+        `<tr class="click" onclick="tokenModal('${esc(r.token_id)}')"><td>${ago(r.ts)} ago</td><td>${tokCell(r)}</td><td>${esc(r.launchpad||"")}</td><td>${dur(r.cp)} old</td>
+         <td>${score(r)}</td><td class="num">${money(r.mcap_usd)}</td>
+         <td class="num">${r.now_mcap_usd ? money(r.now_mcap_usd) + (r.following ? "" : ' <span class="dim">end</span>') : '<span class="dim">–</span>'}</td>
+         <td class="num ${multCls(r.now_mult)}">${fromCall(r.now_mult)}</td>
+         <td class="num ${multCls(r.peak_mult)}">${r.peak_mult?num(r.peak_mult)+"x":"–"}</td>
+         <td><span class="pill ${r.state}">${STATE[r.state] || esc(r.status)}</span></td>
+         <td class="num">${dur(r.t_hit)}</td>
+         <td class="dim">${esc(((r.reasons||{}).good||[]).slice(0,3).join(", "))}</td></tr>`), "No calls yet. Only launches the model gives a high chance of 2x are called; it can take a while.");
   },
   async watch() {
     const rows = await api("candidates");

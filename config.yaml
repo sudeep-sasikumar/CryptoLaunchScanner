@@ -128,9 +128,9 @@ label:
 # ---------------------------------------------------------------- when a call is sent
 call:
   top_pct: 2.0               # before a learned model exists: call the top X% of prior scores (rolling 24 h)
-  min_prior: 62              # ... but never below this score
-  target_precision: 0.40     # with a learned model: threshold tuned so this share of calls should 2x
-  min_prob: 0.25             # ... but never below this probability
+  min_prior: 62              # ... but never below this score [CALL_MIN_SCORE]
+  target_precision: 0.50     # with a learned model: threshold tuned so this share of calls should 2x
+  min_prob: 0.50             # ... and never below this chance of 2x [CALL_MIN_CHANCE, in percent: 50]
   max_per_hour: 10
   enrich_margin: 8           # run the slow pre-call checks (RugCheck, LLM) when within this many points of calling
   mcap_usd: {min: 4500, max: 400000}

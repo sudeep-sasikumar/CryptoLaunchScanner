@@ -21,7 +21,7 @@ class Label:
     """Did price reach target x entry before falling to stop x entry?  All prices are in the
     token's own quote unit, so the multiple is exact whatever the quote is."""
     __slots__ = ("snap_id", "call_id", "t0", "entry", "target", "stop", "horizon_end", "peak", "t_peak",
-                 "low", "last", "hit", "t_hit", "stopped", "t_stop", "done", "end_reason", "tainted")
+                 "low", "last", "hit", "t_hit", "stopped", "t_stop", "done", "end_reason", "tainted", "told")
 
     def __init__(self, snap_id: int, t0: float, price: float, cfg):
         self.snap_id, self.call_id, self.t0 = snap_id, None, t0
@@ -31,6 +31,7 @@ class Label:
         self.peak = self.low = self.last = price / self.entry
         self.t_peak = 0.0
         self.hit = self.stopped = self.done = self.tainted = False
+        self.told = 0.0                       # highest multiple already announced to the user (runner updates)
         self.t_hit = self.t_stop = None
         self.end_reason = None
 

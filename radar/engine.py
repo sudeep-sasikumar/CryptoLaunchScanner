@@ -280,6 +280,8 @@ class Engine:
         done_rows = []
         for mint, tok in list(self.pump.items()):
             self._label_events(tok, tok.flush(now))
+            if tok.called:
+                self._runner_updates(tok)
             age = now - tok.created_ts
             idle = now - tok.last_trade_ts
             for lb in tok.labels:
@@ -307,6 +309,8 @@ class Engine:
                 self._finalize(tok, now)
                 del self.pump[mint]
         for tid, tok in list(self.dex.items()):
+            if tok.called:
+                self._runner_updates(tok)
             age = now - tok.created_ts
             idle = now - (tok.last_change_ts or tok.created_ts)
             for lb in tok.labels:
@@ -357,17 +361,54 @@ class Engine:
             if self.cfg.telegram.outcome_updates:
                 self.spawn(self._outcome_msg(tok, lb, ev))
 
+    def current_mcap(self, tok) -> float | None:
+        """Market cap right now, in USD, for a token still being followed."""
+        if isinstance(tok, PumpToken):
+            usd = self.quotes.price(tok.quote, max_age=3600) if tok.q_known else None
+            if tok.graduated_ts and tok.grad_usd_per_q:
+                usd = tok.grad_usd_per_q
+            return tok.mcap_q() * usd if usd else None
+        if tok.ticks:
+            p = tok.ticks[-1][1]
+            try:
+                return float(p.get("marketCap") or p.get("fdv") or 0) or None
+            except (TypeError, ValueError):
+                return None
+        return None
+
     async def _outcome_msg(self, tok, lb: Label, ev: str) -> None:
-        r = self.db.one("SELECT tg_msg_id FROM calls WHERE id=?", (lb.call_id,))
-        t = lb.t_hit if ev == "hit" else lb.t_stop
-        mins = f"{t / 60:.0f} min" if t and t >= 90 else f"{t or 0:.0f} s"
+        """Replies under a call: it reached 2x (a runner), a new high (3x, 5x, 10x ...), or it dumped."""
+        r = self.db.one("SELECT tg_msg_id, mcap_usd FROM calls WHERE id=?", (lb.call_id,))
+        mc_call, mc_now = (r["mcap_usd"] if r else None), self.current_mcap(tok)
+        caps = f" · mcap {money(mc_call)} → {money(mc_now)}" if mc_call and mc_now else ""
         if ev == "hit":
-            text = f"✅ <b>{esc(tok.symbol)}</b> hit {self.cfg.label.target:g}x in {mins} after the call"
+            t = lb.t_hit or 0
+            when = f"{t / 60:.0f} min" if t >= 90 else f"{t:.0f} s"
+            text = f"🚀 <b>{esc(tok.symbol)}</b> is running: {self.cfg.label.target:g}x from the call in {when}{caps}"
+            dedupe = f"outcome:{lb.call_id}:hit"
+        elif ev.startswith("x"):
+            text = f"🚀 <b>{esc(tok.symbol)}</b> now {ev[1:]}x from the call{caps}"
+            dedupe = f"outcome:{lb.call_id}:{ev}"
         else:
-            text = f"❌ <b>{esc(tok.symbol)}</b> fell {(1 - self.cfg.label.stop) * 100:.0f}% after the call ({mins}); best was {lb.peak:.2f}x"
-        await self.telegram.send(text, dedupe=f"outcome:{lb.call_id}:{ev}", kind="outcome",
+            text = (f"📉 <b>{esc(tok.symbol)}</b> dumped: down {(1 - self.cfg.label.stop) * 100:.0f}% from the call "
+                    f"before reaching {self.cfg.label.target:g}x (best was {lb.peak:.2f}x){caps}")
+            dedupe = f"outcome:{lb.call_id}:{ev}"
+        await self.telegram.send(text, dedupe=dedupe, kind="outcome",
                                  reply_to=message_ids(r["tg_msg_id"]) if r else None,
                                  silent=bool(self.cfg.telegram.get("silent_outcomes")))
+
+    def _runner_updates(self, tok) -> None:
+        """A called coin that keeps running: one reply each time it passes 3x, 5x, 10x, 20x, 50x, 100x."""
+        if not self.cfg.telegram.outcome_updates:
+            return
+        for lb in tok.labels:
+            if lb.call_id is None or not lb.hit:
+                continue
+            nxt = next((m for m in (3, 5, 10, 20, 50, 100) if m > lb.told), None)
+            if nxt and lb.peak >= nxt:
+                lb.told = max(m for m in (3, 5, 10, 20, 50, 100) if m <= lb.peak)
+                self.db.execute("UPDATE calls SET peak_mult=? WHERE id=?", (lb.peak, lb.call_id))
+                self.spawn(self._outcome_msg(tok, lb, f"x{lb.told:g}"))
 
     # ------------------------------------------------------------------ snapshots
     def _pump_snapshot(self, tok: PumpToken, cp: int, now: float) -> None:
@@ -733,7 +774,7 @@ class Engine:
                                  "LEFT JOIN tokens t ON t.id=c.token_id ORDER BY c.ts DESC LIMIT 8")
             if not rows:
                 return "No calls yet."
-            icon = {"hit": "✅", "stopped": "❌", "open": "⏳", "expired": "⌛"}
+            icon = {"hit": "🚀", "stopped": "📉", "open": "⏳", "expired": "💤"}
             return "Last calls:\n" + "\n".join(
                 f"{icon.get(r['status'], '•')} {esc(r['symbol'] or '?')} ({esc(r['launchpad'] or '?')}) "
                 f"{(time.time() - r['ts']) / 3600:.1f} h ago, best {r['peak_mult'] or 0:.2f}x" for r in rows)

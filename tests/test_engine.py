@@ -79,7 +79,7 @@ async def test_clean_launch_is_snapshotted_called_labelled_and_credited(tmp_path
             r = await web.get(f"/api/{path}")
             assert r.status_code == 200, (path, r.text)
         calls = (await web.get("/api/calls")).json()
-        assert calls[0]["symbol"] == "FRESH" and calls[0]["status"] == "hit"
+        assert calls[0]["symbol"] == "FRESH" and calls[0]["status"] == "hit" and calls[0]["state"] == "ran"
         board = (await web.get("/api/scoreboard")).json()
         assert board["total"]["hit"] == 1 and board["by_launchpad"][0]["launchpad"] == "pump.fun"
         t = (await web.get("/api/token", params={"id": "solana:" + addr(1)})).json()

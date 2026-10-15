@@ -23,6 +23,7 @@
 #   TELEGRAM_SILENT_OUTCOMES  optional - true/false: those replies arrive without a sound (default true)
 #   TELEGRAM_DAILY_SUMMARY_UTC optional - time of the daily summary, e.g. 06:00, or off
 #   TELEGRAM_COMMANDS         optional - true to answer /status /calls /stats (needs a bot of its own, not Ignition & Coil's)
+#   CALL_MIN_CHANCE           optional - only call coins with at least this % chance of 2x (default 50; lower = more calls)
 #   CALLS_PER_HOUR            optional - most calls sent in one hour (default 10)
 #   GMGN_WEIGHT_PER_SEC       optional - 5 on GMGN's free plan, 20 on Plus, 50 on Pro
 #   SOLANA_WS_URL             optional - a private Solana RPC websocket (e.g. free Helius key); steadier than the public one
@@ -45,6 +46,7 @@ services:
       TELEGRAM_DAILY_SUMMARY_UTC: ${TELEGRAM_DAILY_SUMMARY_UTC:-}
       TELEGRAM_COMMANDS: ${TELEGRAM_COMMANDS:-}
       CALLS_PER_HOUR: ${CALLS_PER_HOUR:-}
+      CALL_MIN_CHANCE: ${CALL_MIN_CHANCE:-}
       GMGN_WEIGHT_PER_SEC: ${GMGN_WEIGHT_PER_SEC:-}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}   # required: without it the dashboard stays off
       SOLANA_WS_URL: ${SOLANA_WS_URL:-}

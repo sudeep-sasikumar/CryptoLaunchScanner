@@ -73,6 +73,10 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
         val = os.environ.get(env, "").strip()
         if val:
             apply_overrides(raw, f"{path}={val}")
+    chance = os.environ.get("CALL_MIN_CHANCE", "").strip().rstrip("%")
+    if chance:                                   # a percentage people type, e.g. 50 -> 0.5
+        v = float(chance)
+        raw["call"]["min_prob"] = raw["call"]["target_precision"] = v / 100 if v > 1 else v
     return Config(raw)
 
 
@@ -84,5 +88,6 @@ ENV_SETTINGS = {
     "TELEGRAM_DAILY_SUMMARY_UTC": "telegram.daily_summary_utc",
     "TELEGRAM_COMMANDS": "telegram.commands",
     "CALLS_PER_HOUR": "call.max_per_hour",
+    "CALL_MIN_SCORE": "call.min_prior",
     "GMGN_WEIGHT_PER_SEC": "sources.gmgn.weight_per_sec",
 }

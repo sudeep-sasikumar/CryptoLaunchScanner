@@ -168,6 +168,7 @@ printed to the console. `python main.py --minutes 5` runs a 5-minute smoke test;
    | `TELEGRAM_SILENT_OUTCOMES` | optional | `true`/`false`: those replies arrive without a sound (default true) |
    | `TELEGRAM_DAILY_SUMMARY_UTC` | optional | e.g. `06:00`, or `off` |
    | `TELEGRAM_COMMANDS` | optional | `true` to answer `/status` `/calls` `/stats` - needs a bot of its own (Ignition & Coil already reads its bot's messages) |
+   | `CALL_MIN_CHANCE` | optional | only call coins the model gives at least this % chance of 2x (default 50; lower = more calls, higher = fewer) |
    | `CALLS_PER_HOUR` | optional | most calls in one hour (default 10) |
    | `GMGN_WEIGHT_PER_SEC` | optional | 5 on GMGN's free plan, 20 Plus, 50 Pro |
    | `SOLANA_WS_URL`, `ANTHROPIC_API_KEY`, `DOMAIN` | optional | see `docker-compose.yaml` |
@@ -207,7 +208,7 @@ dropped first.
 |---|---|---|
 | `label.target` / `label.stop` | 2.0 / 0.5 | What counts as a hit |
 | `call.top_pct` | 2.0 | Before a model exists: call the top X% of scores (scorecard 75+ until 100 scores exist) |
-| `call.target_precision` | 0.40 | With a model: hit rate the threshold aims for |
+| `call.min_prob` / `call.target_precision` | 0.50 | With a model: minimum chance of 2x to call (`CALL_MIN_CHANCE`) |
 | `call.max_per_hour` | 10 | Alert cap |
 | `call.mcap_usd` | 4.5k - 400k | Mcap range a call may be in |
 | `gates.*` | | Vetoes. Safety ones always apply; the ones marked (*) step aside once a model is in use |

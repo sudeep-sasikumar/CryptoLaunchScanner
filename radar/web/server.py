@@ -43,6 +43,22 @@ def _valid(secret: bytes, token: str | None) -> bool:
     return hmac.compare_digest(sig, good) and exp.isdigit() and int(exp) > time.time()
 
 
+def call_state(status: str, following: bool) -> str:
+    """What a call's outcome means, in plain words:
+    live      - not yet 2x, not yet dumped: still undecided
+    running   - reached 2x and is still being followed (it may keep going)
+    ran       - reached 2x; following has ended (see the best multiple)
+    dumped    - fell 50% below the call price before reaching 2x
+    fizzled   - neither: went quiet or the 6-hour window ended"""
+    if status == "hit":
+        return "running" if following else "ran"
+    if status == "stopped":
+        return "dumped"
+    if status == "open":
+        return "live" if following else "fizzled"
+    return "fizzled"
+
+
 def build_app(engine) -> FastAPI:
     cfg, db = engine.cfg, engine.db
     d = cfg.dashboard
@@ -107,10 +123,15 @@ def build_app(engine) -> FastAPI:
             x = dict(r)
             x["reasons"] = json.loads(x["reasons"] or "{}")
             live = engine.pump.get(x["address"]) or engine.dex.get(x["token_id"])
-            if live and x["status"] in ("open", "hit"):
-                lb = next((lb for lb in live.labels if lb.call_id == x["id"]), None)
-                if lb:
-                    x["peak_mult"], x["now_mult"] = lb.peak, lb.last
+            lb = next((lb for lb in live.labels if lb.call_id == x["id"]), None) if live else None
+            if lb:
+                x["peak_mult"], x["now_mult"] = lb.peak, lb.last
+                x["now_mcap_usd"] = engine.current_mcap(live)
+            else:                                       # no longer followed: where it was when tracking ended
+                x["now_mult"] = x.get("end_mult")
+                x["now_mcap_usd"] = x["mcap_usd"] * x["end_mult"] if x.get("mcap_usd") and x.get("end_mult") else None
+            x["following"] = lb is not None and not lb.done
+            x["state"] = call_state(x["status"], following=lb is not None and not lb.done)
             out.append(x)
         return out
 
