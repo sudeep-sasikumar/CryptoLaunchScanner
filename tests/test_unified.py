@@ -13,6 +13,7 @@ from .test_core import _clean_launch
 from .helpers import cfg
 
 C = cfg()
+OPEN = cfg("call.pull_proof.only=false")
 SAFE = {"sec_checked": 1, "sec_honeypot": 0, "sec_tax_max": 0.0, "sec_mintable": 0, "sec_blacklist": 0,
         "sec_renounced": 1}
 
@@ -95,4 +96,4 @@ def test_holder_figures_from_an_evm_scanner_wait_until_holders_exist():
     tok.security = {**SAFE, "sec_holders": 3, "sec_top10_pct": 100.0, "sec_creator_pct": 100.0}
     f = dex_features(tok, 60, now, {})
     assert f.get("dist_top10_with_dev_pct") is None and f.get("launch_dev_hold_pct") is None   # stale, not used
-    assert gate(f, C) is None
+    assert gate(f, OPEN) is None                                   # pull filter off: nothing else blocks it

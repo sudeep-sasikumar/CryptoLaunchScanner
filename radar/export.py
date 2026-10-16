@@ -62,5 +62,8 @@ def build_day(db_path: Path, day: str) -> bytes:
             if isinstance(row["final"], dict):
                 row["final"].pop("path", None)            # price paths are large; the ending stats are enough here
             put({"kind": "token", **row})
+        for r in con.execute("SELECT id, launchpad, chain, creator, liq_max_usd, liq_now_usd, pull_state, pull_checks, "
+                             "pull_ts FROM tokens WHERE created_ts >= ? AND created_ts < ? AND pull_checks > 0", (start, end)):
+            put({"kind": "pull", **dict(r)})                 # looked up again later: was the liquidity still there?
     con.close()
     return buf.getvalue()

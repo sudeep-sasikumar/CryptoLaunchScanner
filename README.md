@@ -98,7 +98,7 @@ ranks them on top, and a few simple rules checked on newer tokens than they were
 
 - **Password:** uses `DASHBOARD_PASSWORD` from this PC's `.env` (create the file with that one line,
   same password as the dashboard). Never shown, logged, or put on a command line.
-- **Safe replacement:** today's and yesterday's files are always refreshed (outcomes take up to 6 h);
+- **Safe replacement:** the newest 3 days are always refreshed (outcomes take up to 6 h, liquidity checks 48 h);
   a file is only replaced after the new copy passes a full integrity check.
 - **Schedule:** run `powershell -ExecutionPolicy Bypass -File tools\install_daily_sync.ps1` once. It
   registers the task **"Launch Radar research sync"**: every day at 09:30, or as soon as the PC is on;
@@ -121,6 +121,19 @@ fresh creators, early buyers with a winning record). "Top 10 not concentrated", 
 socials" and "original name" pointed the wrong way and were dropped from the score (the vetoes still
 apply). On a day it was not tuned on, separation rose from 0.59 to 0.69 and the top 5% 2x'd 26% of the
 time instead of 16%; the learned model (0.78) still decides once trained.
+
+**Pull-proof calls only (2026-10-17).** On 14-16 Oct, 87-100% of raw Robinhood Uniswap v2/v3/v4 and
+Meteora DAMM v2 pools were empty within two days, while pump.fun, PONS and four.meme pools kept their
+liquidity. Calls are therefore limited to coins whose liquidity cannot be pulled: still on a bonding
+curve, graduated from a launchpad that burns or locks the LP (pump.fun, PONS, four.meme), or with 95%+ of
+the LP locked. Every coin is still scored and labelled, so the model keeps learning from all of them.
+Set `PULL_PROOF_ONLY=false` to call every launchpad again.
+
+**Learning who pulls.** Each DEX coin that held at least $1,000 is looked up again on GeckoTerminal at 6,
+24 and 48 hours. If its pools then hold under $50 the liquidity is gone (pulled, or drained by the creator
+dumping): the coin is marked, its creator's record counts a pull (`cr_pulled_n`, a factor the model sees),
+and that creator is never called again. The dashboard's Learning tab shows the share of coins that lost
+their liquidity per launchpad and the creators who did it; the daily summary has one line on it.
 
 **Conviction.** Every call is ranked against all snapshots of the last 24 h by whatever decides calls:
 🔥🔥 **very high** = top 1%, 🔥 **high** = top 5% (`call.conviction`). On 14-16 Oct the top 1% 2x'd 73%,
@@ -208,6 +221,7 @@ printed to the console. `python main.py --minutes 5` runs a 5-minute smoke test;
    | `TELEGRAM_COMMANDS` | optional | `true` to answer `/status` `/calls` `/stats` - needs a bot of its own (Ignition & Coil already reads its bot's messages) |
    | `CALL_MIN_CHANCE` | optional | only call coins the model gives at least this % chance of 2x (default 50; lower = more calls, higher = fewer) |
    | `CALLS_PER_HOUR` | optional | most calls in one hour (default 10) |
+   | `PULL_PROOF_ONLY` | optional | `true` (default): only call coins whose liquidity cannot be pulled; `false`: every launchpad |
    | `GMGN_WEIGHT_PER_SEC` | optional | 5 on GMGN's free plan, 20 Plus, 50 Pro |
    | `SOLANA_WS_URL`, `ANTHROPIC_API_KEY`, `DOMAIN` | optional | see `docker-compose.yaml` |
 
@@ -250,6 +264,9 @@ dropped first.
 | `call.max_per_hour` | 10 | Alert cap |
 | `call.conviction` | 5 / 1 | 🔥 high = top 5%, 🔥🔥 very high = top 1% of the last 24 h |
 | `sources.skip_launchpads` | fluxbeam | Never tracked (pool farms with fake runs) |
+| `call.pull_proof` | only: true | Calls only for coins on a bonding curve, or graduated on pump.fun / PONS / four.meme (LP burned or locked), or with 95%+ of the LP locked (`PULL_PROOF_ONLY`) |
+| `pulls.check_ages_h` | 6 / 24 / 48 | When DEX coins are looked up again to see whether their liquidity is still there |
+| `gates.max_creator_pulls` | 1 | A creator whose coin lost its liquidity is never called again |
 | `call.mcap_usd` | 4.5k - 400k | Mcap range a call may be in |
 | `gates.*` | | Vetoes. Safety ones always apply; the ones marked (*) step aside once a model is in use |
 | `learn.retrain_hours` | 12 | Retrain cadence |
@@ -302,5 +319,5 @@ radar/web/               dashboard
 radar/export.py          daily research files served at /api/research
 tools/sync_research.py   PC: daily copy of the research files + traits report
 tools/analyze.py         PC: what the 2x / 4x / 10x / 100x runners have in common
-tests/                   54 tests
+tests/                   60 tests
 ```

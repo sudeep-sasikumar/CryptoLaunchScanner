@@ -73,6 +73,22 @@ class Gecko:
             del self.seen_pools[k]
         return out
 
+    async def reserves(self, network: str, addresses: list[str]) -> dict[str, float] | None:
+        """Total USD held across each token's pools right now, keyed by lower-case address (up to 30
+        per request). A token GeckoTerminal no longer lists maps to 0. None = the lookup failed."""
+        data = await self.http.get_json(f"{self.base}/networks/{network}/tokens/multi/{','.join(addresses)}",
+                                        limiter=self.lim, headers=self.headers)
+        if not isinstance(data, dict) or "data" not in data:
+            return None
+        out = {a.lower(): 0.0 for a in addresses}
+        for d in data["data"]:
+            a = d.get("attributes") or {}
+            try:
+                out[str(a.get("address", "")).lower()] = float(a.get("total_reserve_in_usd") or 0)
+            except (TypeError, ValueError):
+                pass
+        return out
+
     def busy(self, max_backlog_s: float = 20.0) -> bool:
         return self.lim.backlog_s() > max_backlog_s
 

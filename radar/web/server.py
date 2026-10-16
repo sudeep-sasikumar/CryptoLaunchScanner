@@ -196,6 +196,12 @@ def build_app(engine) -> FastAPI:
             if is_smart:
                 smart.append({**dict(r), "lift": round(lift, 2)})
         out["wallets"]["smart"] = smart[:25]
+        pp = cfg.call.pull_proof
+        out["pulls"] = {"by_launchpad": engine.pull_stats(7), "only": bool(pp["only"]),
+                        "graduated_locked": list(pp["graduated_locked"]),
+                        "creators": [dict(r) for r in db.query(
+                            "SELECT addr, n_pulled, n_kept FROM creators WHERE n_pulled>0 ORDER BY n_pulled DESC LIMIT 15")],
+                        "creators_n": db.one("SELECT COUNT(*) n FROM creators WHERE n_pulled>0")["n"]}
         return out
 
     @app.get("/api/failures")

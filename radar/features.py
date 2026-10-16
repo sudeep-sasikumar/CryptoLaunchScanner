@@ -358,7 +358,8 @@ def creator_features(tok, ctx: dict) -> dict:
     f = {"cr_prev_n": s.get("cr_prev"), "cr_day_n": s.get("cr_day")}
     if cr is not None:
         f.update({"cr_snap_n": cr["n_snap"], "cr_grad_n": cr["n_grad"], "cr_win_n": cr["n_win"],
-                  "cr_dead_n": cr["n_dead"], "cr_best_mult": cr["best_mult"]})
+                  "cr_dead_n": cr["n_dead"], "cr_best_mult": cr["best_mult"],
+                  "cr_pulled_n": cr["n_pulled"], "cr_kept_n": cr["n_kept"]})
     return f
 
 

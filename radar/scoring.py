@@ -73,7 +73,10 @@ def _inflow(f: dict) -> float | None:
 
 
 def _fresh_creator(f: dict) -> float | None:
-    """A first-time creator scores best; a serial launcher only earns it back with earlier winners."""
+    """A first-time creator scores best; a serial launcher only earns it back with earlier winners.
+    A creator whose earlier coin lost its liquidity scores nothing."""
+    if f.get("cr_pulled_n"):
+        return 0.0
     if f.get("cr_prev_n") is not None:
         s = ramp(f["cr_prev_n"], 10, 0)
         if f.get("cr_win_n"):
@@ -157,6 +160,16 @@ def prior_score(f: dict) -> tuple[float, list[str], list[str]]:
     return max(0.0, min(100.0, total)), [g[1] for g in good[:4]], [b[1] for b in bad[:3]]
 
 
+def pull_proof(f: dict, pp) -> bool:
+    """Can nobody pull this coin's liquidity? True on a bonding curve, after graduation on a launchpad
+    that locks or burns the LP, or with a confirmed lock elsewhere."""
+    if f.get("px_on_curve"):
+        return True
+    if f.get("launchpad") in pp["graduated_locked"]:
+        return True
+    return (f.get("sec_lp_locked_pct") or 0) >= pp["min_locked_pct"]
+
+
 def gate(f: dict, cfg, learned: bool = False, final: bool = False) -> str | None:
     """Reason this snapshot must not be called, or None. The same list for every launchpad,
     each check using whatever that launchpad lets us measure.
@@ -178,6 +191,8 @@ def gate(f: dict, cfg, learned: bool = False, final: bool = False) -> str | None
         return f"mcap below ${lim['min']:,}"
     elif mc > lim["max"]:
         return f"mcap above ${lim['max']:,}"
+    if (f.get("cr_pulled_n") or 0) >= cfg.gates.get("max_creator_pulls", 1):
+        return f"creator's earlier coins lost their liquidity ({f['cr_pulled_n']:.0f}x)"
     if f.get("rc_rugged"):
         return "RugCheck: flagged as rugged"
     if f.get("sec_honeypot"):
@@ -194,7 +209,7 @@ def gate(f: dict, cfg, learned: bool = False, final: bool = False) -> str | None
     if not f.get("px_on_curve") and f.get("px_liq_usd") is not None and f["px_liq_usd"] < g["min_liquidity_usd"]:
         return "liquidity too thin"
     if learned:
-        return None
+        return _pull_veto(f, cfg)
     if (f.get("px_dd_pct") or 0) > g["max_drawdown_pct"]:
         return "already far below its high"
     if (f.get("launch_bundle_held_pct") or 0) > g["max_bundle_held_pct"]:
@@ -218,4 +233,12 @@ def gate(f: dict, cfg, learned: bool = False, final: bool = False) -> str | None
     made, ratio = f.get("gm_creator_created_n"), f.get("gm_creator_open_ratio")
     if made and made >= g["serial_creator_min_launches"] and (ratio or 0) < g["serial_creator_max_grad_ratio"]:
         return f"serial launcher: {made:,.0f} coins, {(ratio or 0) * 100:.1f}% graduated"
+    return _pull_veto(f, cfg)
+
+
+def _pull_veto(f: dict, cfg) -> str | None:
+    """Last check, model or not: with call.pull_proof.only, a coin whose liquidity can be pulled is never called."""
+    pp = cfg.call.get("pull_proof") or {}
+    if pp.get("only") and not pull_proof(f, pp):
+        return "liquidity can be pulled (not on a curve, no locked or burned LP)"
     return None

@@ -14,6 +14,7 @@ from radar.state import DexToken
 from .helpers import cfg
 
 C = cfg()
+OPEN = cfg("call.pull_proof.only=false")
 FIX = json.loads((Path(__file__).parent / "fixtures" / "gmgn_tokens.json").read_text(encoding="utf-8"))
 
 
@@ -70,5 +71,5 @@ def test_other_launchpad_gets_holders_bundles_snipers_and_safety_from_gmgn():
 def test_serial_launcher_and_wash_trading_vetoes():
     base = {"px_mcap_usd": 20000, "sec_checked": 1}
     assert "serial launcher" in gate({**base, "gm_creator_created_n": 27380, "gm_creator_open_ratio": 409 / 27380}, C)
-    assert gate({**base, "gm_creator_created_n": 30, "gm_creator_open_ratio": 0.2}, C) is None
+    assert gate({**base, "gm_creator_created_n": 30, "gm_creator_open_ratio": 0.2}, OPEN) is None   # pull filter off
     assert "wash" in gate({**base, "gm_wash": 1}, C, learned=True)                # safety: always applies

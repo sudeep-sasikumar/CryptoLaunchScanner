@@ -177,8 +177,16 @@ const VIEWS = {
       <div class="card"><span>Smart wallets found</span><b class="good">${d.wallets.smart.length}${d.wallets.smart.length>=25?"+":""}</b></div>
       <div class="card"><span>Creators tracked</span><b>${(d.wallets.creators||0).toLocaleString()}</b></div></div>
       <p class="note"><b>Research data:</b> every finished snapshot, its factors and what happened next, one file per day.
-      The PC copies them daily with <code>tools\\sync_research.py</code> and studies them with <code>tools\\analyze.py</code>.</p>
-      <h2>Learning status</h2>`;
+      The PC copies them daily with <code>tools\\sync_research.py</code> and studies them with <code>tools\\analyze.py</code>.</p>`;
+    const pl = d.pulls || {by_launchpad: [], creators: []};
+    html += `<h2>Who pulls liquidity</h2><p class="note">Every DEX coin that held real liquidity is looked up again at 6, 24 and 48 hours. "Gone" = its pools now hold almost nothing (pulled, or drained by the creator dumping). Coins on a bonding curve and launchpads that lock the LP (${(pl.graduated_locked||[]).map(esc).join(", ")}) are not looked up: their liquidity cannot be pulled.
+      ${pl.only ? "<b>Calls: pull-proof coins only</b> (PULL_PROOF_ONLY)." : "Calls are <b>not</b> limited to pull-proof coins."} A creator whose coin lost its liquidity is never called again: <b>${(pl.creators_n||0).toLocaleString()}</b> so far.</p>` +
+      table(["Launchpad / pool type","#Looked up (7 days)","#Liquidity gone","#Share gone"], pl.by_launchpad.map(r =>
+        `<tr><td>${esc(r.launchpad||"?")}</td><td class="num">${r.checked}</td><td class="num">${r.gone}</td><td class="num ${r.gone/r.checked>0.5?"bad":""}">${pct(r.gone/r.checked)}</td></tr>`),
+        "Nothing looked up yet - the first checks happen 6 hours after a coin launches.");
+    if (pl.creators.length) html += table(["Creator","#Coins that lost liquidity","#Coins that kept it"], pl.creators.map(c =>
+      `<tr><td><code>${esc(c.addr)}</code></td><td class="num bad">${c.n_pulled}</td><td class="num">${c.n_kept}</td></tr>`));
+    html += `<h2>Learning status</h2>`;
     html += table(["Covers","Labelled snapshots","Winners","Base rate","Status"], Object.entries(d.last).map(([f,r]) =>
       `<tr><td>${src(f)}</td><td>${(r.n_rows||0).toLocaleString()}</td><td>${(r.n_pos||0).toLocaleString()}</td><td>${pct(r.base_rate,1)}</td><td>${esc(r.note || r.verdict || "—")}${r.promoted?' <span class="good">→ promoted '+esc(r.ver)+'</span>':''}</td></tr>`));
     html += `<h2>Models</h2><p class="note">Each retrain is tested on the newest 15% of history it never saw. "Top 2%" = of the 2% it ranked highest, how many really 2x'd, next to the hand scorecard on the same tokens.</p>` +

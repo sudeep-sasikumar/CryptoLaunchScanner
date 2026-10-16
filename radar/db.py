@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS tokens (
   meta TEXT,                      -- socials, image, flags (JSON)
   status TEXT DEFAULT 'live',     -- live / graduated / dead
   graduated_ts REAL, peak_mcap_usd REAL, last_mcap_usd REAL,
+  liq_max_usd REAL,               -- most liquidity seen at a snapshot
+  pull_state INTEGER,             -- DEX pools, looked up again later: NULL not yet, 0 still there, 1 liquidity gone
+  pull_checks INTEGER DEFAULT 0, pull_ts REAL, liq_now_usd REAL,
   final TEXT,                     -- how it ended: death stats + price path (JSON)
   updated_ts REAL
 );
@@ -94,9 +97,18 @@ class DB:
             self.con.execute("ALTER TABLE snapshots ADD COLUMN fkeys INTEGER")
         if "tier" not in {r["name"] for r in self.con.execute("PRAGMA table_info(calls)")}:
             self.con.execute("ALTER TABLE calls ADD COLUMN tier INTEGER")      # conviction: 0 / 1 high / 2 very high
+        self._add_columns("tokens", {"liq_max_usd": "REAL", "pull_state": "INTEGER", "pull_checks": "INTEGER DEFAULT 0",
+                                     "pull_ts": "REAL", "liq_now_usd": "REAL"})
+        self._add_columns("creators", {"n_pulled": "INTEGER DEFAULT 0", "n_kept": "INTEGER DEFAULT 0"})
         self._in_tx = False
         self._layouts: dict[tuple, int] = {}
         self._keys: dict[int, tuple] = {}
+
+    def _add_columns(self, table: str, cols: dict) -> None:
+        have = {r["name"] for r in self.con.execute(f"PRAGMA table_info({table})")}
+        for name, kind in cols.items():
+            if name not in have:
+                self.con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
 
     # -- transactions: begin lazily, commit from the engine tick
     def _begin(self) -> None:

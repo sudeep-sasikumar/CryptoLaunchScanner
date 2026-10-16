@@ -93,6 +93,17 @@ class Engine:
             (self.cfg.label.min_mcap_usd, *skip)).rowcount
         if n:
             log.info("%d snapshots from skipped launchpads or mispriced pools set aside", n)
+        # DEX coins recorded before liquidity look-ups existed: take their most liquidity from the snapshots
+        best: dict[str, float] = {}
+        for row in self.db.query(
+                "SELECT s.token_id, s.fkeys, s.features FROM snapshots s JOIN tokens t ON t.id = s.token_id "
+                "WHERE t.family='dex' AND t.liq_max_usd IS NULL AND t.created_ts > ?", (now - 72 * 3600,)):
+            liq = self.db.unpack(row["fkeys"], row["features"]).get("px_liq_usd")
+            if liq:
+                best[row["token_id"]] = max(best.get(row["token_id"], 0.0), float(liq))
+        if best:
+            self.db.executemany("UPDATE tokens SET liq_max_usd=? WHERE id=?", [(v, k) for k, v in best.items()])
+            log.info("liquidity look-ups: %d earlier DEX coins added", len(best))
         r = self.db.one("SELECT path, ver FROM models WHERE family=? AND active=1 ORDER BY id DESC LIMIT 1", (ALL,))
         if r:
             self.models[ALL] = learner.Model.load(r["path"])
@@ -128,6 +139,8 @@ class Engine:
         loops.append(self.telegram.poll_commands())
         if self.codex.enabled:
             loops.append(self.codex_loop())
+        if self.cfg.pulls.enabled and self.cfg.sources.gecko.enabled:
+            loops.append(self.pull_loop())
         if self.cfg.dashboard.enabled:
             from .web.server import serve
             loops.append(serve(self))
@@ -545,6 +558,8 @@ class Engine:
             (tok.id, fam, cp, now, tok.created_ts, price, f.get("px_mcap_usd"), fkeys, packed, prior, prob,
              m.ver if m else None, why_not))
         snap_id = cur.lastrowid
+        if f.get("px_liq_usd"):
+            self.db.execute("UPDATE tokens SET liq_max_usd=MAX(COALESCE(liq_max_usd,0),?) WHERE id=?", (f["px_liq_usd"], tok.id))
         lb = Label(snap_id, now, price, self.cfg.label)
         tok.labels.append(lb)
         tok.snapshots += 1
@@ -724,7 +739,7 @@ class Engine:
             "created_ts,created_slot,meta,status,updated_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (tok.id, tok.family, tok.chain, tok.launchpad, tok.mint if pump else tok.address,
              "" if pump else tok.pool, tok.name[:80], tok.symbol[:40], tok.uri[:300] if pump else "",
-             tok.user if pump else (tok.security or {}).get("_creator", ""), tok.quote,
+             tok.user if pump else ((tok.seen or {}).get("creator") or (tok.security or {}).get("_creator", "")), tok.quote,
              tok.created_ts, tok.created_slot if pump else None, _dump(tok.meta or {}), "live", now))
 
     def _finalize(self, tok, now: float) -> None:
@@ -793,6 +808,72 @@ class Engine:
             except Exception:   # noqa: BLE001
                 log.exception("GMGN feed failed for %s", name)
             await asyncio.sleep(c["poll_s"])
+
+    # ------------------------------------------------------------------ who pulls liquidity
+    async def pull_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self.cfg.pulls.every_s)
+            try:
+                await self.check_pulls(time.time())
+            except Exception:   # noqa: BLE001
+                log.exception("pull check failed")
+
+    def pull_due(self, now: float) -> list:
+        """DEX coins whose next look-up is due: one per age in pulls.check_ages_h, until the liquidity is
+        gone or the last age passed. Coins on a curve or on a launchpad that locks the LP are skipped."""
+        c = self.cfg.pulls
+        ages = [h * 3600.0 for h in c.check_ages_h]
+        skip = list(self.cfg.call.pull_proof["graduated_locked"]) + list(self.cfg.sources.gecko.curve_dexes)
+        rows = self.db.query(
+            f"SELECT id, chain, address, creator, launchpad, created_ts, pull_checks FROM tokens "
+            f"WHERE family='dex' AND COALESCE(pull_state,0)=0 AND COALESCE(pull_checks,0) < ? "
+            f"AND liq_max_usd >= ? AND created_ts > ? AND created_ts < ? "
+            f"AND COALESCE(launchpad,'') NOT IN ({','.join('?' * len(skip))}) ORDER BY created_ts",
+            (len(ages), c.min_liq_usd, now - ages[-1] - 86400, now - ages[0], *skip))
+        return [r for r in rows if now - r["created_ts"] >= ages[min(r["pull_checks"] or 0, len(ages) - 1)]]
+
+    async def check_pulls(self, now: float) -> int:
+        """Look the due coins up on GeckoTerminal. Liquidity gone = pulled (or drained by the creator):
+        the token and its creator are marked, and the creator is never called again."""
+        c = self.cfg.pulls
+        if self.gecko.busy():
+            return 0
+        due = self.pull_due(now)
+        last = len(c.check_ages_h)
+        by_chain: dict[str, list] = {}
+        for r in due:
+            by_chain.setdefault(r["chain"], []).append(r)
+        found = asked = 0
+        for chain, rows in by_chain.items():
+            for i in range(0, len(rows), c.batch):
+                if asked >= c.max_requests or self.gecko.busy():
+                    break                                   # the rest waits for the next round
+                asked += 1
+                part = rows[i:i + c.batch]
+                res = await self.gecko.reserves(chain, [r["address"] for r in part])
+                if res is None:
+                    continue
+                for r in part:
+                    liq = res.get(r["address"].lower(), 0.0)
+                    gone = liq < c.empty_usd
+                    n = (r["pull_checks"] or 0) + 1
+                    self.db.execute("UPDATE tokens SET pull_state=?, pull_checks=?, liq_now_usd=?, pull_ts=? WHERE id=?",
+                                    (int(gone), n, liq, now if gone else None, r["id"]))
+                    if gone:
+                        found += 1
+                        self.counts["pulls"] = self.counts.get("pulls", 0) + 1
+                        log.info("liquidity gone: %s (%s) creator %s", r["id"], r["launchpad"], r["creator"] or "?")
+                    if gone or n >= last:
+                        self.rep.pull_seen(r["creator"], gone)
+        self.db.commit()
+        return found
+
+    def pull_stats(self, days: float = 7) -> list[dict]:
+        """Per launchpad: DEX coins looked up again, and how many lost their liquidity."""
+        rows = self.db.query(
+            "SELECT launchpad, COUNT(*) n, SUM(pull_state=1) gone FROM tokens WHERE family='dex' AND pull_checks>0 "
+            "AND created_ts > ? GROUP BY launchpad ORDER BY n DESC", (time.time() - days * 86400,))
+        return [{"launchpad": r["launchpad"], "checked": r["n"], "gone": r["gone"] or 0} for r in rows]
 
     def _pad(self, raw: str) -> str:
         return canonical_launchpad(raw, list(self.cfg.sources.launchpad_names)) or raw[:40].lower()
@@ -1087,6 +1168,10 @@ class Engine:
                                "FROM calls WHERE ts>? GROUP BY 1 ORDER BY 1 DESC", (since,)):
             lines.append(f"   {names.get(t['tier'], '?')} conviction: {t['n']} calls, {t['h'] or 0} hit 2x, "
                          f"avg best {t['pk'] or 0:.2f}x")
+        ps = self.pull_stats(1)
+        if ps:
+            n, g = sum(p["checked"] for p in ps), sum(p["gone"] for p in ps)
+            lines.append(f"Liquidity gone on {g} of {n} DEX coins looked up again ({_pc(g / n if n else None)})")
         for pad in self.db.query("SELECT t.launchpad, COUNT(*) n, SUM(c.status='hit') h FROM calls c "
                                  "LEFT JOIN tokens t ON t.id=c.token_id WHERE c.ts>? GROUP BY 1 ORDER BY 2 DESC LIMIT 6",
                                  (since,)):

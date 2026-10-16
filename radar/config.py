@@ -89,5 +89,6 @@ ENV_SETTINGS = {
     "TELEGRAM_COMMANDS": "telegram.commands",
     "CALLS_PER_HOUR": "call.max_per_hour",
     "CALL_MIN_SCORE": "call.min_prior",
+    "PULL_PROOF_ONLY": "call.pull_proof.only",
     "GMGN_WEIGHT_PER_SEC": "sources.gmgn.weight_per_sec",
 }

@@ -68,7 +68,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Download the VPS's research data")
     ap.add_argument("--url", default=str(cfg.research.sync_url), help="dashboard address (default research.sync_url)")
     ap.add_argument("--dest", default=str(cfg.data_dir / "research" / "vps"))
-    ap.add_argument("--refresh-days", type=int, default=2, help="re-download the newest N UTC days (still being decided)")
+    ap.add_argument("--refresh-days", type=int, default=3,
+                    help="re-download the newest N UTC days (outcomes and 48-hour liquidity checks still landing)")
     ap.add_argument("--no-report", action="store_true", help="only download; skip writing the traits report")
     a = ap.parse_args()
 

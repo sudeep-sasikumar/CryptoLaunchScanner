@@ -86,6 +86,14 @@ class Reputation:
                         (day_ts, day_n + 1, ts, addr))
         return r["n_created"], day_n
 
+    def pull_seen(self, creator: str, gone: bool) -> None:
+        """A creator's coin was looked up after the fact: its liquidity was gone, or still there at the last check."""
+        if not creator:
+            return
+        col = "n_pulled" if gone else "n_kept"
+        self.db.execute(f"INSERT INTO creators(addr,n_created,{col}) VALUES(?,0,1) "
+                        f"ON CONFLICT(addr) DO UPDATE SET {col}={col}+1", (creator,))
+
     def credit(self, tok, final: dict, quote_usd: float | None) -> None:
         """Token finished: update its creator and early buyers."""
         if tok.tainted:

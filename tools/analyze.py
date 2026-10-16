@@ -169,7 +169,43 @@ def table(head: list[str], body: list[list]) -> list[str]:
 
 
 # ------------------------------------------------------------------------------------------- report
-def report(rows: list[dict], calls: list[dict], days: list[str], checkpoint: int | None, top_n: int = 25) -> str:
+def load_pulls(folder: Path, days: int | None = None) -> list[dict]:
+    """Liquidity look-ups (6 / 24 / 48 h after launch) of DEX coins, newest state per token."""
+    files = sorted(p for p in folder.glob("*.jsonl.gz") if NAME.fullmatch(p.name))
+    out: dict[str, dict] = {}
+    for p in files[-days:] if days else files:
+        with gzip.open(p, "rt", encoding="utf-8") as fh:
+            for line in fh:
+                r = json.loads(line)
+                if r.get("kind") == "pull":
+                    out[r["id"]] = r
+    return list(out.values())
+
+
+def pull_section(pulls: list[dict]) -> list[str]:
+    L = ["## 6. Who pulls liquidity", ""]
+    if not pulls:
+        return L + ["_No liquidity look-ups in these files yet (they start 6 h after a coin launches)._", ""]
+    by: dict[str, list] = defaultdict(list)
+    for r in pulls:
+        by[r.get("launchpad") or "?"].append(r)
+    body = []
+    for pad, rs in sorted(by.items(), key=lambda kv: -len(kv[1])):
+        gone = sum(1 for r in rs if r.get("pull_state") == 1)
+        body.append([pad, len(rs), gone, pct(gone, len(rs))])
+    L += ["DEX coins that once held $1,000+ looked up again; 'gone' = pools now hold under $50.", ""]
+    L += table(["launchpad / pool type", "looked up", "liquidity gone", "share"], body) + [""]
+    creators: dict[str, int] = defaultdict(int)
+    for r in pulls:
+        if r.get("pull_state") == 1 and r.get("creator"):
+            creators[r["creator"]] += 1
+    repeat = {c: n for c, n in creators.items() if n > 1}
+    L += [f"Creators behind a lost-liquidity coin: {len(creators)}; with more than one: {len(repeat)}.", ""]
+    return L
+
+
+def report(rows: list[dict], calls: list[dict], days: list[str], checkpoint: int | None, top_n: int = 25,
+           pulls: list[dict] | None = None) -> str:
     L: list[str] = []
     n = len(rows)
     peak = np.array([r.get("peak_mult") or 0.0 for r in rows])
@@ -280,6 +316,8 @@ def report(rows: list[dict], calls: list[dict], days: list[str], checkpoint: int
 
     # 5. simple rules
     L += rules(X, keys, peak)
+    if pulls is not None:
+        L += pull_section(pulls)
     L += ["## Caveats", "",
           "- Only tokens active enough to be snapshotted are here; dead-on-arrival launches never enter the data.",
           "- One or two days is a small, single market regime: treat patterns as leads until they hold for a week+.",
@@ -333,7 +371,7 @@ def rules(X: np.ndarray, keys: list[str], peak: np.ndarray, target: float = 4.0)
 
 def write_report(folder: Path, out: Path, days: int | None = None, checkpoint: int | None = None) -> str:
     snaps, calls, names = load(folder, days)
-    text = report(per_token(snaps, checkpoint), calls, names, checkpoint)
+    text = report(per_token(snaps, checkpoint), calls, names, checkpoint, pulls=load_pulls(folder, days))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
     return text

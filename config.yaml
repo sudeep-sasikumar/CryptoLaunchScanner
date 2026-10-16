@@ -144,6 +144,15 @@ call:
     high_top_pct: 5          # 🔥 high: top 5% (2026-10-14..16: these 2x'd ~50%, 10x'd ~3%)
     very_high_top_pct: 1     # 🔥🔥 very high: top 1% (2x'd ~73%, 4x'd ~33%, 10x'd ~15%)
     min_snapshots: 500       # fewer in the last 24 h: no label
+  pull_proof:                # only call coins whose liquidity cannot be pulled (PULL_PROOF_ONLY=true/false)
+    only: true
+    # always pull-proof: a coin still on a bonding curve (the launchpad's program holds the money)
+    # after graduation, only these launchpads lock or burn the liquidity (pump.fun burns the LP on
+    # PumpSwap, PONS keeps the Uniswap v4 position in its locker, four.meme burns the LP). Checked
+    # 2026-10-16: 56/60, 17/18 and 18/18 sampled pools still held liquidity; raw Uniswap / Meteora
+    # DAMM v2 pools were 87-100% empty.
+    graduated_locked: [pump.fun, pons, four.meme]
+    min_locked_pct: 95       # anything else: only with this much of the LP locked or burned (GMGN / GoPlus / Solana Tracker)
 
 # Vetoes. Safety ones (cannot sell, tax, owner can mint / blacklist, thin liquidity, flagged as rugged,
 # mcap range) always apply. The opinion ones below marked (*) apply while the scorecard decides and
@@ -162,6 +171,17 @@ gates:                       # one list for every launchpad
   max_rug_ratio: 0.6         # (*) GMGN's rug score (0-1)
   serial_creator_min_launches: 50   # (*) a creator with at least this many coins ...
   serial_creator_max_grad_ratio: 0.05   # (*) ... of which fewer than this share graduated = a coin farm
+  max_creator_pulls: 1       # a creator whose earlier coin lost its liquidity this many times is never called
+
+# ---------------------------------------------------------------- learning who pulls liquidity
+pulls:
+  enabled: true
+  check_ages_h: [6, 24, 48]  # each DEX coin that got a snapshot is looked up again at these ages (GeckoTerminal)
+  empty_usd: 50              # pool reserves below this = liquidity gone (pulled, or drained by the creator dumping)
+  min_liq_usd: 1000          # ... but only for coins that once held at least this much
+  batch: 30                  # tokens per GeckoTerminal request
+  every_s: 600
+  max_requests: 4            # per round: GeckoTerminal's free ~5/min is shared with launch discovery
 
 # ---------------------------------------------------------------- self-learning
 learn:
