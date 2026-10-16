@@ -81,10 +81,36 @@ cashback / holder-reward modes, creator's launch count in 24 h, bonding-curve pr
    saw. The new model replaces the old one only if it clearly beats the hand scorecard, beats luck
    (99% of random rankings), and is no worse than the model in use.
 4. **Threshold moves too.** The call cut-off is set where the newest data shows the target hit rate
-   (`call.target_precision`, default 40%).
+   (`call.target_precision`, default 50%; never below `call.min_prob`).
 5. **Wallet and creator reputations** update after every finished token.
 6. **Readable output.** The dashboard tab "What it has learned" shows, for every factor, the 2x rate
    in each value range - so you can see what matters without trusting a model.
+7. **Daily copy + traits report on this PC** (same pattern as Ignition & Coil, below).
+
+### Copying the VPS data to this PC and studying it (daily, automatic)
+
+The VPS keeps learning on its own (steps 1-6). On top of that, `tools\sync_research.py` signs in to
+the dashboard (`research.sync_url` in `config.yaml`), downloads one file per UTC day into
+`var\research\vps\` - every finished snapshot with all its factors and what happened next, that day's
+calls, and how tokens ended - then writes **`var\research\report-<date>.md`**: what the coins that ran
+2x / 4x / 10x / 100x had in common, which launchpads they came from, whether the scorecard / model
+ranks them on top, and a few simple rules checked on newer tokens than they were learned on.
+
+- **Password:** uses `DASHBOARD_PASSWORD` from this PC's `.env` (create the file with that one line,
+  same password as the dashboard). Never shown, logged, or put on a command line.
+- **Safe replacement:** today's and yesterday's files are always refreshed (outcomes take up to 6 h);
+  a file is only replaced after the new copy passes a full integrity check.
+- **Schedule:** run `powershell -ExecutionPolicy Bypass -File tools\install_daily_sync.ps1` once. It
+  registers the task **"Launch Radar research sync"**: every day at 09:30, or as soon as the PC is on;
+  under your account, only while you're logged in; stores no password.
+- **Log:** `var\logs\research_sync.log`. Downloads stay on this PC (`var\` is not in git).
+
+| To... | Run (PowerShell) |
+|---|---|
+| sync + report now | `.venv\Scripts\python.exe tools\sync_research.py` |
+| report only (e.g. last 7 days, at the 3-min snapshot) | `.venv\Scripts\python.exe tools\analyze.py --days 7 --checkpoint 180` |
+| run the scheduled task now | `Start-ScheduledTask -TaskName "Launch Radar research sync"` |
+| remove it | `Unregister-ScheduledTask -TaskName "Launch Radar research sync" -Confirm:$false` |
 
 Until the first model is promoted, the hand-weighted scorecard in `radar/scoring.py` decides and the
 scanner calls the top 2% of scores from the last 24 h.
@@ -259,5 +285,8 @@ radar/sources/           pump.fun stream + decoder, GMGN, Codex / Solana Tracker
 radar/llm.py             optional Claude meme / narrative rating
 radar/notify.py          Telegram (alerts, outcome replies, daily summary, optional commands)
 radar/web/               dashboard
-tests/                   45 tests
+radar/export.py          daily research files served at /api/research
+tools/sync_research.py   PC: daily copy of the research files + traits report
+tools/analyze.py         PC: what the 2x / 4x / 10x / 100x runners have in common
+tests/                   54 tests
 ```

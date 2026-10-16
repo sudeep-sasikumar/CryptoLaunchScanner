@@ -198,3 +198,7 @@ dashboard:
   base_url: http://localhost:8010
   cookie_secure: false
   session_days: 30
+
+# ---------------------------------------------------------------- studying the data on the PC
+research:
+  sync_url: https://srv1479428.hstgr.cloud/radar   # tools/sync_research.py copies the VPS's daily research files from here

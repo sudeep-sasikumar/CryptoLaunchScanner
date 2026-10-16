@@ -15,7 +15,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 log = logging.getLogger("web")
 STATIC = Path(__file__).parent / "static"
@@ -225,6 +225,27 @@ def build_app(engine) -> FastAPI:
             out.append(k)
         out.sort(key=lambda k: (k["family"], -k["n"]))
         return out
+
+    @app.get("/api/research")
+    async def research_list():
+        """Days of research data on this server (tools/sync_research.py copies them to the PC)."""
+        import asyncio
+        from radar.export import list_days
+        db.commit()
+        return {"days": await asyncio.to_thread(list_days, db.path), "server_time": time.time()}
+
+    @app.get("/api/research/file/{name}")
+    async def research_file(name: str):
+        """One day's finished snapshots, calls and token endings, built from the database on request."""
+        import asyncio
+        from radar.export import NAME, build_day
+        m = NAME.fullmatch(name)
+        if not m:
+            raise HTTPException(404, "no such file")
+        db.commit()
+        data = await asyncio.to_thread(build_day, db.path, m.group(1))
+        return Response(data, media_type="application/gzip",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
     @app.get("/api/token")
     async def token(id: str):

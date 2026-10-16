@@ -173,7 +173,10 @@ const VIEWS = {
       <div class="card"><span>Wallets tracked</span><b>${(d.wallets.tracked||0).toLocaleString()}</b></div>
       <div class="card"><span>With enough history</span><b>${(d.wallets.seasoned||0).toLocaleString()}</b></div>
       <div class="card"><span>Smart wallets found</span><b class="good">${d.wallets.smart.length}${d.wallets.smart.length>=25?"+":""}</b></div>
-      <div class="card"><span>Creators tracked</span><b>${(d.wallets.creators||0).toLocaleString()}</b></div></div><h2>Learning status</h2>`;
+      <div class="card"><span>Creators tracked</span><b>${(d.wallets.creators||0).toLocaleString()}</b></div></div>
+      <p class="note"><b>Research data:</b> every finished snapshot, its factors and what happened next, one file per day.
+      The PC copies them daily with <code>tools\\sync_research.py</code> and studies them with <code>tools\\analyze.py</code>.</p>
+      <h2>Learning status</h2>`;
     html += table(["Covers","Labelled snapshots","Winners","Base rate","Status"], Object.entries(d.last).map(([f,r]) =>
       `<tr><td>${src(f)}</td><td>${(r.n_rows||0).toLocaleString()}</td><td>${(r.n_pos||0).toLocaleString()}</td><td>${pct(r.base_rate,1)}</td><td>${esc(r.note || r.verdict || "—")}${r.promoted?' <span class="good">→ promoted '+esc(r.ver)+'</span>':''}</td></tr>`));
     html += `<h2>Models</h2><p class="note">Each retrain is tested on the newest 15% of history it never saw. "Top 2%" = of the 2% it ranked highest, how many really 2x'd, next to the hand scorecard on the same tokens.</p>` +
