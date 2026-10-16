@@ -70,6 +70,7 @@ class Engine:
         self.grad_ts: deque[float] = deque(maxlen=2000)
         self.call_ts: deque[float] = deque(maxlen=200)
         self.priors = {ALL: deque(maxlen=60000)}                          # (ts, prior) of recent snapshots
+        self.probs = {ALL: deque(maxlen=60000)}                           # (ts, model chance) of recent snapshots
         self.recent = {ALL: deque(maxlen=3000)}                           # (ts, hit) of recent labels
         self.tasks: set[asyncio.Task] = set()
         self.last_train: dict[str, dict] = {}
@@ -95,8 +96,10 @@ class Engine:
         r = self.db.one("SELECT path, ver FROM models WHERE family=? AND active=1 ORDER BY id DESC LIMIT 1", (ALL,))
         if r:
             self.models[ALL] = learner.Model.load(r["path"])
-        for row in self.db.query("SELECT ts, prior FROM snapshots WHERE ts>? ORDER BY ts", (now - 86400,)):
+        for row in self.db.query("SELECT ts, prior, prob FROM snapshots WHERE ts>? ORDER BY ts", (now - 86400,)):
             self.priors[ALL].append((row["ts"], row["prior"] or 0.0))
+            if row["prob"] is not None:
+                self.probs[ALL].append((row["ts"], row["prob"]))
         for row in self.db.query("SELECT done_ts, hit FROM snapshots WHERE done=1 AND tainted=0 AND done_ts>? "
                                  "ORDER BY done_ts", (now - 6 * 3600,)):
             self.recent[ALL].append((row["done_ts"], row["hit"] or 0))
@@ -260,6 +263,25 @@ class Engine:
             return "prior", c.min_prior + 13.0              # too few scores to know the top slice: be strict
         cut = vals[min(len(vals) - 1, int(len(vals) * (1 - c.top_pct / 100.0)))]
         return "prior", max(c.min_prior, cut)
+
+    def _remember(self, ts: float, prior: float, prob) -> None:
+        self.priors[ALL].append((ts, prior))
+        if prob is not None:
+            self.probs[ALL].append((ts, prob))
+
+    def conviction(self, now: float, kind: str, value: float | None) -> int:
+        """2 = in the top `very_high_top_pct` of the last 24 h's snapshots by what decides calls (model
+        chance, or the scorecard before a model exists), 1 = top `high_top_pct`, else 0. Ties count
+        half, so a block of identical chances is not all ranked first."""
+        c = self.cfg.call.conviction
+        if value is None:
+            return 0
+        vals = [v for t, v in (self.probs if kind == "prob" else self.priors)[ALL] if now - t <= 86400]
+        if len(vals) < c["min_snapshots"]:
+            return 0
+        above = sum(1 for v in vals if v > value) + 0.5 * sum(1 for v in vals if v == value)
+        share = 100.0 * above / len(vals)
+        return 2 if share < c["very_high_top_pct"] else 1 if share < c["high_top_pct"] else 0
 
     # ------------------------------------------------------------------ the one-second tick
     async def tick_loop(self) -> None:
@@ -535,7 +557,7 @@ class Engine:
             # as soon as it answers (about a second), then the call decision is made
             self.spawn(self._enrich_pump(tok, lb, snap_id, f, now))
             return
-        self.priors[ALL].append((now, prior))
+        self._remember(now, prior, prob)
         self._maybe_consider(tok, lb, snap_id, f, prior, prob, why_not, now)
 
     def _maybe_consider(self, tok, lb: Label, snap_id: int, f: dict, prior: float, prob, why_not, now: float) -> None:
@@ -607,7 +629,7 @@ class Engine:
         fkeys, packed = self.db.pack(f)
         self.db.execute("UPDATE snapshots SET fkeys=?, features=?, prior=?, prob=?, gate=? WHERE id=?",
                         (fkeys, packed, prior, prob, why_not, snap_id))
-        self.priors[ALL].append((t0, prior))
+        self._remember(t0, prior, prob)
         if not tok.tainted and not lb.done:
             self._maybe_consider(tok, lb, snap_id, f, prior, prob, why_not, t0)
 
@@ -652,17 +674,20 @@ class Engine:
         tok.called = True
         self.call_ts.append(now)
         self.counts["calls"] += 1
+        tier = self.conviction(now, kind, value)
         cur = self.db.execute(
-            "INSERT INTO calls(snapshot_id,token_id,ts,price,mcap_usd,prior,prob,model_ver,reasons) VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO calls(snapshot_id,token_id,ts,price,mcap_usd,prior,prob,model_ver,reasons,tier) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
             (snap_id, tok.id, now, lb.entry, f.get("px_mcap_usd"), prior, prob, m.ver if m else None,
-             json.dumps({"good": good, "bad": bad})))
+             json.dumps({"good": good, "bad": bad}), tier))
         lb.call_id = cur.lastrowid
-        text = call_text(tok, f, prior, prob, m.ver if m else None, good, bad, self._call_hit_rate(), self.cfg.label)
+        text = call_text(tok, f, prior, prob, m.ver if m else None, good, bad, self._call_hit_rate(), self.cfg.label,
+                         tier=tier, tier_cfg=self.cfg.call.conviction)
         ids = await self.telegram.send(text, dedupe=f"call:{tok.id}", kind="call")
         if ids:
             self.db.execute("UPDATE calls SET tg_msg_id=? WHERE id=?", (json.dumps(ids), lb.call_id))
-        log.info("CALL %s %s (%s) prior %.0f prob %s mcap %s", tok.launchpad, tok.symbol, tok.id, prior,
-                 f"{prob:.2f}" if prob is not None else "-", money(f.get("px_mcap_usd")))
+        log.info("CALL %s %s (%s) prior %.0f prob %s mcap %s conviction %d", tok.launchpad, tok.symbol, tok.id,
+                 prior, f"{prob:.2f}" if prob is not None else "-", money(f.get("px_mcap_usd")), tier)
 
     async def _safety_retry(self, tok, f: dict) -> None:
         """One more try at the contract check before a call: GMGN first, then GoPlus."""
@@ -1057,6 +1082,11 @@ class Engine:
                  f"{c['n']} calls → {c['h'] or 0} hit 2x, {c['s'] or 0} stopped, {c['o'] or 0} open "
                  f"(hit rate {rate}, avg best {c['pk'] or 0:.2f}x)",
                  f"All {b['n']:,} snapshots: {_pc(b['r'])} would have 2x'd — {decider}"]
+        names = {2: "🔥🔥 very high", 1: "🔥 high", 0: "standard"}
+        for t in self.db.query("SELECT COALESCE(tier,0) tier, COUNT(*) n, SUM(status='hit') h, AVG(peak_mult) pk "
+                               "FROM calls WHERE ts>? GROUP BY 1 ORDER BY 1 DESC", (since,)):
+            lines.append(f"   {names.get(t['tier'], '?')} conviction: {t['n']} calls, {t['h'] or 0} hit 2x, "
+                         f"avg best {t['pk'] or 0:.2f}x")
         for pad in self.db.query("SELECT t.launchpad, COUNT(*) n, SUM(c.status='hit') h FROM calls c "
                                  "LEFT JOIN tokens t ON t.id=c.token_id WHERE c.ts>? GROUP BY 1 ORDER BY 2 DESC LIMIT 6",
                                  (since,)):

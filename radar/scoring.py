@@ -65,51 +65,68 @@ def _creator(f: dict) -> float | None:
     return 0.0 if made >= 20 and ratio < 0.05 else ramp(ratio, 0.0, 0.15)
 
 
-# (label shown in alerts, weight, scoring function) - weights sum to 100
+def _inflow(f: dict) -> float | None:
+    """Money that came in: bonding-curve progress while on a curve, else traded volume vs market cap."""
+    if f.get("px_on_curve") and f.get("px_curve_pct") is not None:
+        return ramp(f["px_curve_pct"], 15, 60)
+    return ramp(f.get("flow_vol_per_mcap"), 0.4, 1.2)
+
+
+def _fresh_creator(f: dict) -> float | None:
+    """A first-time creator scores best; a serial launcher only earns it back with earlier winners."""
+    if f.get("cr_prev_n") is not None:
+        s = ramp(f["cr_prev_n"], 10, 0)
+        if f.get("cr_win_n"):
+            s = max(s, ramp(f["cr_win_n"], 0, 2))
+        return s
+    return _creator(f)
+
+
+# (label shown in alerts, weight, scoring function) - weights sum to 100.
+# Rebalanced 2026-10-16 on 3 days of outcomes (tools/analyze.py): weights follow how well each item
+# told 2x runners apart on 14-15 Oct, checked on 16 Oct (separation 0.59 -> 0.69). Items that did
+# not separate keep a small weight (safety is enforced by the vetoes instead); "top 10 not
+# concentrated", "no bundle", "has socials" and "original name" pointed the wrong way and were dropped.
 CARD = [
-    # contract safety (14) - pump.fun coins nearly always pass; still checked, like everything else
-    ("sellable, no honeypot", 4, lambda f: _flag_ok(f.get("sec_honeypot"))),
-    ("low tax",               3, lambda f: ramp(f.get("sec_tax_max"), 10, 0)),
-    ("no mint / freeze / blacklist powers", 3, lambda f: _worst(_flag_ok(f.get("sec_mintable")),
+    # contract safety (6) - the vetoes in gate() do the real protecting
+    ("sellable, no honeypot", 2, lambda f: _flag_ok(f.get("sec_honeypot"))),
+    ("low tax",               1, lambda f: ramp(f.get("sec_tax_max"), 10, 0)),
+    ("no mint / freeze / blacklist powers", 2, lambda f: _worst(_flag_ok(f.get("sec_mintable")),
                                                                  _flag_ok(f.get("sec_blacklist")))),
-    ("ownership renounced",   2, lambda f: f.get("sec_renounced")),
-    ("liquidity locked / burnt", 2, lambda f: ramp(f.get("sec_lp_locked_pct"), 20, 90)),
-    # fair launch (24) - the GMGN-style checks
-    ("no bundle",             5, lambda f: ramp(f.get("launch_slot0_pct"), 12, 0)),
-    ("few snipers",           3, lambda f: ramp(f.get("launch_sniper_pct"), 15, 2)),
-    ("few insiders",          4, lambda f: ramp(f.get("hx_insider_pct"), 25, 2)),
-    ("few phishing wallets",  4, lambda f: ramp(f.get("hx_phishing_pct"), 25, 2) if f.get("hx_phishing_pct") is not None
-                                           else ramp(f.get("launch_phantom_sold_pct"), 3, 0)),
-    ("dev not dumping",       3, lambda f: ramp(f.get("launch_dev_sold_pct"), 50, 0)),
-    ("dev bag modest",        2, lambda f: ramp(f.get("launch_dev_hold_pct"), 15, 3)),
-    ("no coordinated buying", 3, lambda f: _worst(ramp(f.get("launch_cluster_pct"), 12, 1),
-                                                  ramp(f.get("launch_same_size_share"), 0.35, 0.05))),
-    # holder distribution (14)
-    ("top 10 not concentrated", 6, lambda f: ramp(f.get("dist_top10_with_dev_pct"), 45, 16)),
-    ("no whale",              2, lambda f: ramp(f.get("dist_top1_pct"), 10, 3)),
-    ("many holders",          3, lambda f: ramp(f.get("dist_holders"), _cp_scale(f, 6, 12), _cp_scale(f, 40, 60))),
-    ("buyers are staying",    3, lambda f: ramp(f.get("dist_exited_share"), 0.6, 0.2)),
-    # wallet quality (12)
-    ("smart money / KOLs in", 7, _smart),
-    ("few toxic wallets",     5, lambda f: None if not f.get("wq_known_share") else ramp(f.get("wq_toxic_share"), 0.3, 0.0)),
-    # demand and chart (22)
-    ("buy pressure",          5, lambda f: ramp(f.get("flow_buy_share_recent"), 0.45, 0.65)),
-    ("buyers arriving",       4, lambda f: ramp(f.get("flow_buys_per_min"), 3, 30)),
-    ("holding near highs",    5, lambda f: ramp(f.get("px_dd_pct"), 45, 10)),
-    ("steady uptrend",        3, lambda f: None if f.get("px_slope") is None
+    ("liquidity locked / burnt", 1, lambda f: ramp(f.get("sec_lp_locked_pct"), 20, 90)),
+    # momentum (29): coins that run are already taking in money and making fresh highs
+    ("money flowing in",      12, _inflow),
+    ("price rising",          5, lambda f: ramp(f.get("px_mult"), 1.2, 3.0)),
+    ("steady uptrend",        6, lambda f: None if f.get("px_slope") is None
                                            else ramp(f["px_slope"], -0.02, 0.02) * (0.5 + 0.5 * (f.get("px_r2") or 0))),
-    ("volume building",       3, lambda f: ramp(f.get("flow_accel"), 0.4, 1.5)),
-    ("liquidity vs. market cap", 2, lambda f: ramp(f.get("px_liq_per_mcap"), 0.03, 0.2)),
-    # identity and buzz (14)
-    ("has socials",           3, lambda f: None if not f.get("id_meta_ok") and not f.get("id_dex_paid")
-                                           else max(ramp(f.get("id_socials_n"), 0, 2) or 0.0, float(f.get("id_dex_paid") or 0))),
-    ("own X account",         1, lambda f: None if not f.get("id_meta_ok") else (1.0 if f.get("id_x_kind") == 1 else 0.3)),
+    ("holding near highs",    3, lambda f: ramp(f.get("px_dd_pct"), 45, 10)),
+    ("fresh high",            3, lambda f: ramp(f.get("px_since_high_s"), 120, 10)),
+    # demand (18)
+    ("buy pressure",          8, lambda f: ramp(f.get("flow_buy_share_recent"), 0.45, 0.65)),
+    ("buyers arriving",       3, lambda f: ramp(f.get("flow_buys_per_min"), 3, 30)),
+    ("volume building",       4, lambda f: ramp(f.get("flow_accel"), 0.4, 1.5)),
+    ("liquidity vs. market cap", 3, lambda f: ramp(f.get("px_liq_per_mcap"), 0.03, 0.2)),
+    # holders (21)
+    ("many holders",          7, lambda f: ramp(f.get("dist_holders"), _cp_scale(f, 6, 12), _cp_scale(f, 40, 60))),
+    ("buyers are staying",    8, lambda f: ramp(f.get("dist_exited_share"), 0.6, 0.2)),
+    ("spread across many wallets", 6, lambda f: ramp(f.get("dist_hhi"), 0.15, 0.04)),
+    # who is behind it and who is buying (17)
+    ("fresh creator / good record", 6, _fresh_creator),
+    ("early buyers have picked winners", 6, lambda f: ramp(f.get("wq_lift_mean"), 0.9, 1.3)),
+    ("few toxic wallets",     3, lambda f: None if not f.get("wq_known_share") else ramp(f.get("wq_toxic_share"), 0.3, 0.0)),
+    ("smart money / KOLs in", 2, _smart),
+    # fair launch (6)
+    ("few insiders / phishing wallets", 3, lambda f: _worst(
+        ramp(f.get("hx_insider_pct"), 25, 2),
+        ramp(f.get("hx_phishing_pct"), 25, 2) if f.get("hx_phishing_pct") is not None
+        else ramp(f.get("launch_phantom_sold_pct"), 3, 0))),
+    ("dev not dumping",       2, lambda f: ramp(f.get("launch_dev_sold_pct"), 50, 0)),
+    ("few snipers",           1, lambda f: ramp(f.get("launch_sniper_pct"), 15, 2)),
+    # identity (3)
     ("X following",           2, lambda f: _log_ramp(f.get("gm_x_followers"), 20, 3000)),
-    # a copy launched while the original is still hot is the classic trap: no credit at all
-    ("original name",         3, lambda f: 0.0 if (f.get("id_name_burst_n") or 0) >= 1 else ramp(f.get("id_name_prev_n"), 4, 0)),
-    ("original image / socials", 2, lambda f: _worst(ramp(f.get("id_img_prev_n"), 2, 0), ramp(f.get("id_x_prev_n"), 2, 0))),
-    ("creator record",        3, _creator),
+    ("original image / socials", 1, lambda f: _worst(ramp(f.get("id_img_prev_n"), 2, 0), ramp(f.get("id_x_prev_n"), 2, 0))),
 ]
+assert sum(w for _, w, _ in CARD) == 100
 NEUTRAL = 0.5
 
 

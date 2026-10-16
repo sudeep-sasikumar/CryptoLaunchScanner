@@ -140,6 +140,10 @@ call:
   mcap_usd: {min: 4500, max: 400000}
   allow_unknown_quote: false # pump coins paired against a token with no USD price are recorded, not called
   require_safety_check: true # no call unless the contract check (GoPlus) answered - pump.fun coins included
+  conviction:                # extra label on a call, ranked against every snapshot of the last 24 h
+    high_top_pct: 5          # 🔥 high: top 5% (2026-10-14..16: these 2x'd ~50%, 10x'd ~3%)
+    very_high_top_pct: 1     # 🔥🔥 very high: top 1% (2x'd ~73%, 4x'd ~33%, 10x'd ~15%)
+    min_snapshots: 500       # fewer in the last 24 h: no label
 
 # Vetoes. Safety ones (cannot sell, tax, owner can mint / blacklist, thin liquidity, flagged as rugged,
 # mcap range) always apply. The opinion ones below marked (*) apply while the scorecard decides and

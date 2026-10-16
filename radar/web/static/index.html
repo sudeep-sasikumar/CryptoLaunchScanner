@@ -125,11 +125,13 @@ const VIEWS = {
       <div class="card"><span>Still live</span><b>${rows.length - settled}</b></div>
       <div class="card"><span>Best call</span><b class="good">${best ? num(best,1)+"x" : "–"}</b></div></div>
       <p class="note"><b>Chance of 2x</b>: the model's estimate that the coin doubles from the call price before it falls to half (the hand scorecard out of 100 is shown beside it).
+      <b>Conviction</b>: 🔥🔥 very high = top 1% of all launches scored in the last 24 h · 🔥 high = top 5%.
       <b>Status</b>: ⏳ Live = not decided yet · 🚀 Running = reached 2x and still being followed · 🚀 Ran = reached 2x, following ended · 📉 Dumped = fell 50% below the call price first · 💤 Fizzled = neither, it went quiet.
       <b>Mcap now / Now vs call</b> = current market cap and change since the call; for coins no longer followed, where they were when tracking ended (marked "end"). Live does not mean it is still a good entry: check how far it has moved since the call. Click a row for every recorded factor.</p>` +
-      table(["When","Token","Launchpad","Called at","Chance of 2x","#Mcap at call","#Mcap now / at end","#Now vs call","#Best","Status","#Time to 2x","Why"], rows.map(r =>
+      table(["When","Token","Launchpad","Called at","Chance of 2x","Conviction","#Mcap at call","#Mcap now / at end","#Now vs call","#Best","Status","#Time to 2x","Why"], rows.map(r =>
         `<tr class="click" onclick="tokenModal('${esc(r.token_id)}')"><td>${ago(r.ts)} ago</td><td>${tokCell(r)}</td><td>${esc(r.launchpad||"")}</td><td>${dur(r.cp)} old</td>
-         <td>${score(r)}</td><td class="num">${money(r.mcap_usd)}</td>
+         <td>${score(r)}</td><td>${r.tier === 2 ? "🔥🔥 very high" : r.tier === 1 ? "🔥 high" : '<span class="dim">–</span>'}</td>
+         <td class="num">${money(r.mcap_usd)}</td>
          <td class="num">${r.now_mcap_usd ? money(r.now_mcap_usd) + (r.following ? "" : ' <span class="dim">end</span>') : '<span class="dim">–</span>'}</td>
          <td class="num ${multCls(r.now_mult)}">${fromCall(r.now_mult)}</td>
          <td class="num ${multCls(r.peak_mult)}">${r.peak_mult?num(r.peak_mult)+"x":"–"}</td>

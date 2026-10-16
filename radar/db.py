@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS calls (
   snapshot_id INTEGER UNIQUE, token_id TEXT, ts REAL, price REAL, mcap_usd REAL,
   prior REAL, prob REAL, model_ver TEXT, reasons TEXT, tg_msg_id INTEGER,
   status TEXT DEFAULT 'open',     -- open / hit / stopped / expired
-  peak_mult REAL, t_hit REAL, closed_ts REAL
+  peak_mult REAL, t_hit REAL, closed_ts REAL,
+  tier INTEGER                    -- conviction: 0 standard, 1 high (top 5% of the day), 2 very high (top 1%)
 );
 CREATE INDEX IF NOT EXISTS ix_calls_ts ON calls(ts);
 
@@ -91,6 +92,8 @@ class DB:
         cols = {r["name"] for r in self.con.execute("PRAGMA table_info(snapshots)")}
         if "fkeys" not in cols:
             self.con.execute("ALTER TABLE snapshots ADD COLUMN fkeys INTEGER")
+        if "tier" not in {r["name"] for r in self.con.execute("PRAGMA table_info(calls)")}:
+            self.con.execute("ALTER TABLE calls ADD COLUMN tier INTEGER")      # conviction: 0 / 1 high / 2 very high
         self._in_tx = False
         self._layouts: dict[tuple, int] = {}
         self._keys: dict[int, tuple] = {}

@@ -114,7 +114,7 @@ def build_app(engine) -> FastAPI:
     @app.get("/api/calls")
     async def calls(limit: int = 100):
         rows = db.query(
-            "SELECT c.id, c.ts, c.token_id, c.mcap_usd, c.prior, c.prob, c.model_ver, c.status, c.peak_mult, c.t_hit, "
+            "SELECT c.id, c.ts, c.token_id, c.mcap_usd, c.prior, c.prob, c.model_ver, c.status, c.peak_mult, c.t_hit, c.tier, "
             "c.reasons, t.name, t.symbol, t.launchpad, t.chain, t.address, s.cp, s.end_mult, s.family "
             "FROM calls c JOIN snapshots s ON s.id=c.snapshot_id LEFT JOIN tokens t ON t.id=c.token_id "
             "ORDER BY c.ts DESC LIMIT ?", (min(limit, 500),))

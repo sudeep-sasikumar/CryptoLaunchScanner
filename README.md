@@ -115,6 +115,18 @@ ranks them on top, and a few simple rules checked on newer tokens than they were
 Until the first model is promoted, the hand-weighted scorecard in `radar/scoring.py` decides and the
 scanner calls the top 2% of scores from the last 24 h.
 
+**Scorecard rebalanced 2026-10-16** from 3 days of outcomes: weights now follow how well each item told
+2x runners apart (money flowing in, buyers staying, many holders spread across wallets, fresh highs,
+fresh creators, early buyers with a winning record). "Top 10 not concentrated", "no bundle", "has
+socials" and "original name" pointed the wrong way and were dropped from the score (the vetoes still
+apply). On a day it was not tuned on, separation rose from 0.59 to 0.69 and the top 5% 2x'd 26% of the
+time instead of 16%; the learned model (0.78) still decides once trained.
+
+**Conviction.** Every call is ranked against all snapshots of the last 24 h by whatever decides calls:
+🔥🔥 **very high** = top 1%, 🔥 **high** = top 5% (`call.conviction`). On 14-16 Oct the top 1% 2x'd 73%,
+4x'd 33% and 10x'd 15% of the time; the top 1-5% 2x'd 47%. Shown on the Telegram call, in the
+dashboard's Calls tab and in the daily summary.
+
 ## 5. Data sources (verified live on 2026-10-14)
 
 | Source | Used for | Limit seen |
@@ -236,6 +248,8 @@ dropped first.
 | `call.top_pct` | 2.0 | Before a model exists: call the top X% of scores (scorecard 75+ until 100 scores exist) |
 | `call.min_prob` / `call.target_precision` | 0.50 | With a model: minimum chance of 2x to call (`CALL_MIN_CHANCE`) |
 | `call.max_per_hour` | 10 | Alert cap |
+| `call.conviction` | 5 / 1 | 🔥 high = top 5%, 🔥🔥 very high = top 1% of the last 24 h |
+| `sources.skip_launchpads` | fluxbeam | Never tracked (pool farms with fake runs) |
 | `call.mcap_usd` | 4.5k - 400k | Mcap range a call may be in |
 | `gates.*` | | Vetoes. Safety ones always apply; the ones marked (*) step aside once a model is in use |
 | `learn.retrain_hours` | 12 | Retrain cadence |
@@ -245,7 +259,7 @@ Override without editing the file: `RADAR_OVERRIDES="call.top_pct=1;label.target
 
 ## 9. Known limits
 
-- **First day = scorecard only.** The hand weights are a starting opinion, not a tested edge.
+- **First day = scorecard only.** The weights were rebalanced on just 3 days of data: a tested lead, not a proven edge.
 - **Launchpads other than pump.fun need at least one holder-data key.** Measured with no keys
   (7-minute live run): contract safety was checked on every snapshot, but holder figures existed
   for only 4 of 19 non-pump snapshots, because GeckoTerminal's free limit is spent on discovery

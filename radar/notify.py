@@ -172,8 +172,11 @@ def links(tok) -> str:
     return " · ".join(out)
 
 
+CONVICTION = {2: ("🔥🔥", "VERY HIGH CONVICTION", "very_high_top_pct"), 1: ("🔥", "HIGH CONVICTION", "high_top_pct")}
+
+
 def call_text(tok, f: dict, prior: float, prob: float | None, model_ver: str | None, good: list[str],
-              bad: list[str], expected: float | None, label_cfg) -> str:
+              bad: list[str], expected: float | None, label_cfg, tier: int = 0, tier_cfg=None) -> str:
     a = tok.address if hasattr(tok, "address") else tok.mint
     age = f.get("age_s", 0)
     age_txt = f"{age / 60:.0f} min" if age >= 90 else f"{age:.0f} s"
@@ -195,6 +198,10 @@ def call_text(tok, f: dict, prior: float, prob: float | None, model_ver: str | N
                   if f.get("flow_buy_share_recent") is None else
                   f"{f.get('flow_buys_per_min', 0):.0f} buys/min, {f['flow_buy_share_recent'] * 100:.0f}% buying")
     lines = [head, score, " · ".join(market)]
+    if tier in CONVICTION:
+        icon, words, key = CONVICTION[tier]
+        top = (tier_cfg or {}).get(key, 1 if tier == 2 else 5)
+        lines.insert(0, f"{icon} <b>{words}</b> — top {top:g}% of the last 24 h")
     # the GMGN-style panel: holders and who they are
     dev = pct("launch_dev_hold_pct", 1)
     if f.get("launch_dev_sold_pct") is not None:

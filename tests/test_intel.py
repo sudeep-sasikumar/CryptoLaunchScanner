@@ -92,4 +92,4 @@ def test_gmgn_first_then_the_others_and_vetoes_use_whichever_answered():
                                        "top10": 20.0, "insiders": {"count": 9, "totalPercentage": 41.0}}})
     apply_intel(f, [st])
     assert f["hx_insider_pct"] == 41.0 and gate(f, C) == "insiders hold 41%"
-    assert "few insiders" in prior_score(f)[2]
+    assert "few insiders / phishing wallets" in prior_score(f)[2]

@@ -56,3 +56,29 @@ async def test_runner_gets_one_update_per_new_milestone(tmp_path):
         await asyncio.sleep(0)
     assert sent == ["x3", "x5", "x10"]                  # 12x jumped past 5 and 10: one message, the highest
     await e.http.close()
+
+
+def test_conviction_is_the_top_slice_of_the_last_day(tmp_path):
+    e = Engine(cfg(f"app.data_dir={tmp_path.as_posix()};dashboard.enabled=false"))
+    now = time.time()
+    assert e.conviction(now, "prob", 0.99) == 0                 # too few snapshots to rank against
+    for i in range(1000):
+        e._remember(now - 60, 50.0, i / 1000)                    # chances 0.000 .. 0.999
+    e._remember(now - 90000, 50.0, 5.0)                          # older than 24 h: ignored
+    assert e.conviction(now, "prob", 0.995) == 2                 # top 1%
+    assert e.conviction(now, "prob", 0.97) == 1                  # top 5%
+    assert e.conviction(now, "prob", 0.90) == 0
+    for _ in range(100):
+        e._remember(now - 30, 50.0, 1.0)                         # a block of identical "certain" chances
+    assert e.conviction(now, "prob", 1.0) == 1                   # 100 of 1,100 tied: not all "top 1%"
+    asyncio.run(e.http.close())
+
+
+def test_call_message_names_the_conviction():
+    from radar.notify import call_text
+    tok = SimpleNamespace(symbol="ABC", name="Abc", launchpad="pump.fun", chain="solana", mint="M1", family="pump", meta=None, pool=None)
+    c = cfg().label
+    text = call_text(tok, {"age_s": 60}, 70.0, 0.8, "m1", [], [], None, c, tier=2,
+                     tier_cfg={"very_high_top_pct": 1, "high_top_pct": 5})
+    assert text.startswith("🔥🔥 <b>VERY HIGH CONVICTION</b> — top 1% of the last 24 h")
+    assert "CONVICTION" not in call_text(tok, {"age_s": 60}, 70.0, 0.8, "m1", [], [], None, c)

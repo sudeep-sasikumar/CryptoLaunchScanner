@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from radar.features import apply_gmgn, dex_features
-from radar.scoring import gate, prior_score
+from radar.scoring import CARD, gate, prior_score
 from radar.sources.gmgn import from_trenches, parse_token
 from radar.state import DexToken
 
@@ -62,8 +62,9 @@ def test_other_launchpad_gets_holders_bundles_snipers_and_safety_from_gmgn():
     assert f["gm_x_followers"] == 828 and f["id_img_prev_n"] >= 2 and f["id_dex_paid"] == 1
     assert gate(f, C, final=True) == f"phishing wallets hold {f['gm_phishing_pct']:.0f}%"   # 38% phishing: blocked
     assert gate(f, C, learned=True, final=True) is None                    # an opinion veto: a model may lift it
-    score, good, bad = prior_score(f)
-    assert "few phishing wallets" in bad and "no bundle" in good
+    items = {label: fn for label, _, fn in CARD}
+    assert items["few insiders / phishing wallets"](f) == 0.0              # 38% phishing scores nothing
+    assert 0 <= prior_score(f)[0] <= 100
 
 
 def test_serial_launcher_and_wash_trading_vetoes():
