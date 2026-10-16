@@ -176,7 +176,8 @@ CONVICTION = {2: ("🔥🔥", "VERY HIGH CONVICTION", "very_high_top_pct"), 1: (
 
 
 def call_text(tok, f: dict, prior: float, prob: float | None, model_ver: str | None, good: list[str],
-              bad: list[str], expected: float | None, label_cfg, tier: int = 0, tier_cfg=None) -> str:
+              bad: list[str], expected: float | None, label_cfg, tier: int = 0, tier_cfg=None,
+              paper_usd: float | None = None) -> str:
     a = tok.address if hasattr(tok, "address") else tok.mint
     age = f.get("age_s", 0)
     age_txt = f"{age / 60:.0f} min" if age >= 90 else f"{age:.0f} s"
@@ -202,6 +203,8 @@ def call_text(tok, f: dict, prior: float, prob: float | None, model_ver: str | N
         icon, words, key = CONVICTION[tier]
         top = (tier_cfg or {}).get(key, 1 if tier == 2 else 5)
         lines.insert(0, f"{icon} <b>{words}</b> — top {top:g}% of the last 24 h")
+    if paper_usd:
+        lines.append(f"📝 Paper trade opened: ${paper_usd:g} (no real money)")
     # the GMGN-style panel: holders and who they are
     dev = pct("launch_dev_hold_pct", 1)
     if f.get("launch_dev_sold_pct") is not None:

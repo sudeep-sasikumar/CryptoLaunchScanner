@@ -135,6 +135,16 @@ dumping): the coin is marked, its creator's record counts a pull (`cr_pulled_n`,
 and that creator is never called again. The dashboard's Learning tab shows the share of coins that lost
 their liquidity per launchpad and the creators who did it; the daily summary has one line on it.
 
+**Paper trading (2026-10-17, no money involved).** Every 🔥🔥 very high conviction call opens a $25 paper
+trade (`paper` in config.yaml; `PAPER_TRADING`, `PAPER_STAKE_USD`, `PAPER_MIN_TIER` in Hostinger). It follows
+the call's own live price feed and runs the plan: 50% at 2x, 25% at 4x, 25% at 8x, everything at -50% before
+the first sale. Kept realistic: bought at the price when the call goes out +3%, every sell 3% below its target
+(a stop that is gapped through fills at the price actually seen), 1% fee on each buy and sell; what is still
+held when the scanner stops following the coin (6 h at most) is sold at the last price. Each sale is replied
+silently under the call, the daily summary has a line, and the dashboard's "Paper trading" tab lists every
+trade with its deepest dip before 2x (to judge tighter stops) and its best multiple. A restart closes open
+paper trades at their last price.
+
 **Conviction.** Every call is ranked against all snapshots of the last 24 h by whatever decides calls:
 🔥🔥 **very high** = top 1%, 🔥 **high** = top 5% (`call.conviction`). On 14-16 Oct the top 1% 2x'd 73%,
 4x'd 33% and 10x'd 15% of the time; the top 1-5% 2x'd 47%. Shown on the Telegram call, in the
@@ -262,6 +272,7 @@ dropped first.
 | `call.top_pct` | 2.0 | Before a model exists: call the top X% of scores (scorecard 75+ until 100 scores exist) |
 | `call.min_prob` / `call.target_precision` | 0.50 | With a model: minimum chance of 2x to call (`CALL_MIN_CHANCE`) |
 | `call.max_per_hour` | 10 | Alert cap |
+| `paper.*` | $25, very high only | Paper trading: stake, tiers, take-profit ladder, stop, slippage, fees |
 | `call.conviction` | 5 / 1 | 🔥 high = top 5%, 🔥🔥 very high = top 1% of the last 24 h |
 | `sources.skip_launchpads` | fluxbeam | Never tracked (pool farms with fake runs) |
 | `call.pull_proof` | only: true | Calls only for coins on a bonding curve, or graduated on pump.fun / PONS / four.meme (LP burned or locked), or with 95%+ of the LP locked (`PULL_PROOF_ONLY`) |
@@ -311,6 +322,7 @@ radar/features.py        all factors
 radar/scoring.py         vetoes + day-one scorecard
 radar/model.py           learner: time-split test, promotion, threshold, lift tables
 radar/wallets.py         smart / toxic wallet and creator reputation
+radar/paper.py           paper trading: the take-profit plan on live prices, no money
 radar/sources/           pump.fun stream + decoder, GMGN, Codex / Solana Tracker / GeckoTerminal info (intel.py),
                          GeckoTerminal pools, DexScreener, GoPlus, RugCheck, metadata
 radar/llm.py             optional Claude meme / narrative rating
@@ -319,5 +331,5 @@ radar/web/               dashboard
 radar/export.py          daily research files served at /api/research
 tools/sync_research.py   PC: daily copy of the research files + traits report
 tools/analyze.py         PC: what the 2x / 4x / 10x / 100x runners have in common
-tests/                   60 tests
+tests/                   69 tests
 ```

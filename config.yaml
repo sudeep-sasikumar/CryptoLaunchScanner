@@ -173,6 +173,21 @@ gates:                       # one list for every launchpad
   serial_creator_max_grad_ratio: 0.05   # (*) ... of which fewer than this share graduated = a coin farm
   max_creator_pulls: 1       # a creator whose earlier coin lost its liquidity this many times is never called
 
+# ---------------------------------------------------------------- paper trading (no money involved)
+paper:
+  enabled: true              # PAPER_TRADING=true/false
+  stake_usd: 25              # PAPER_STAKE_USD
+  min_tier: 2                # 2 = very high conviction only, 1 = high and very high (PAPER_MIN_TIER)
+  take_profit:               # [multiple of the entry, share of the ORIGINAL position sold there]
+    - [2, 0.50]              # the initial back
+    - [4, 0.25]
+    - [8, 0.25]
+  stop: 0.5                  # before the first take-profit: sell everything at this multiple (-50%)
+  stop_after_first: null     # after it: e.g. 1.0 = sell the rest if it falls back to the entry price
+  slippage_pct: 3            # buy this much above the price when the call goes out; every sell this much below
+  fee_pct: 1.0               # per buy and per sell (trading-bot / platform fee)
+  telegram: true             # reply under the call with each paper sell
+
 # ---------------------------------------------------------------- learning who pulls liquidity
 pulls:
   enabled: true

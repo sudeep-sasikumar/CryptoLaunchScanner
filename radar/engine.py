@@ -32,6 +32,7 @@ from .sources.metadata import Metadata
 from .sources.pump_stream import PumpStream
 from .sources.security import Security
 from .state import LABEL_SQL, DexToken, Label, PumpToken
+from .paper import Paper
 from .wallets import Reputation
 
 log = logging.getLogger("engine")
@@ -57,6 +58,8 @@ class Engine:
         self.stracker = SolanaTracker(self.http, src.solanatracker, cfg.secret("SOLANATRACKER_API_KEY"), self.db)
         self.telegram = Telegram(cfg.telegram, cfg.secret("TELEGRAM_BOT_TOKEN"), cfg.secret("TELEGRAM_CHAT_ID"), self.db)
         self.rep = Reputation(self.db, cfg.learn.wallets)
+        self.paper = Paper(self.db, cfg.paper)
+        self.paper_touch = 0.0
         self.telegram.on_command = self.command
         self.stream = PumpStream(src.pump.ws_url, src.pump.stall_s, self.on_pump_event, self.on_gap)
 
@@ -371,6 +374,14 @@ class Engine:
                 del self.dex[tid]
         if done_rows:
             self.db.executemany(LABEL_SQL, done_rows)
+        if self.paper.live:
+            for call_id, msg in self.paper.step(now):
+                log.info("paper call %d: %s", call_id, msg)
+                if self.cfg.paper.telegram:
+                    self.spawn(self._paper_msg(call_id, msg))
+            if now - self.paper_touch > 60:
+                self.paper.touch(now)
+                self.paper_touch = now
 
     def _label_done(self, tok, lb: Label, now: float) -> tuple:
         row = lb.row(now)
@@ -439,6 +450,13 @@ class Engine:
         await self.telegram.send(text, dedupe=dedupe, kind="outcome",
                                  reply_to=message_ids(r["tg_msg_id"]) if r else None,
                                  silent=bool(self.cfg.telegram.get("silent_outcomes")))
+
+    async def _paper_msg(self, call_id: int, msg: str) -> None:
+        r = self.db.one("SELECT c.tg_msg_id, t.symbol FROM calls c LEFT JOIN tokens t ON t.id=c.token_id WHERE c.id=?",
+                        (call_id,))
+        await self.telegram.send(f"📝 Paper {esc((r['symbol'] if r else '') or '')}: {esc(msg)}",
+                                 dedupe=f"paper:{call_id}:{msg}", kind="outcome",
+                                 reply_to=message_ids(r["tg_msg_id"]) if r else None, silent=True)
 
     def _runner_updates(self, tok) -> None:
         """A called coin that keeps running: one reply each time it passes 3x, 5x, 10x, 20x, 50x, 100x."""
@@ -696,8 +714,12 @@ class Engine:
             (snap_id, tok.id, now, lb.entry, f.get("px_mcap_usd"), prior, prob, m.ver if m else None,
              json.dumps({"good": good, "bad": bad}), tier))
         lb.call_id = cur.lastrowid
+        paper = self.paper.wants(tier, f)
+        if paper:
+            self.paper.open(lb.call_id, tok, lb, tier, tok.price, now)
         text = call_text(tok, f, prior, prob, m.ver if m else None, good, bad, self._call_hit_rate(), self.cfg.label,
-                         tier=tier, tier_cfg=self.cfg.call.conviction)
+                         tier=tier, tier_cfg=self.cfg.call.conviction,
+                         paper_usd=self.cfg.paper.stake_usd if paper else None)
         ids = await self.telegram.send(text, dedupe=f"call:{tok.id}", kind="call")
         if ids:
             self.db.execute("UPDATE calls SET tg_msg_id=? WHERE id=?", (json.dumps(ids), lb.call_id))
@@ -1168,6 +1190,9 @@ class Engine:
                                "FROM calls WHERE ts>? GROUP BY 1 ORDER BY 1 DESC", (since,)):
             lines.append(f"   {names.get(t['tier'], '?')} conviction: {t['n']} calls, {t['h'] or 0} hit 2x, "
                          f"avg best {t['pk'] or 0:.2f}x")
+        pl = self.paper.summary_line(since)
+        if pl:
+            lines.append(pl)
         ps = self.pull_stats(1)
         if ps:
             n, g = sum(p["checked"] for p in ps), sum(p["gone"] for p in ps)

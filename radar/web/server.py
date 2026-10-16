@@ -204,6 +204,22 @@ def build_app(engine) -> FastAPI:
                         "creators_n": db.one("SELECT COUNT(*) n FROM creators WHERE n_pulled>0")["n"]}
         return out
 
+    @app.get("/api/paper")
+    async def paper(limit: int = 200):
+        """Paper trades: the take-profit plan on live prices, no money involved."""
+        rows = db.query("SELECT p.*, c.mcap_usd FROM paper p LEFT JOIN calls c ON c.id = p.call_id "
+                        "ORDER BY p.opened_ts DESC LIMIT ?", (min(limit, 1000),))
+        out = []
+        for r in rows:
+            x = dict(r)
+            x["steps"] = json.loads(x["steps"] or "[]")
+            out.append(x)
+        c = cfg.paper
+        return {"trades": out, "all": engine.paper.stats(), "day": engine.paper.stats(time.time() - 86400),
+                "plan": {"stake_usd": c.stake_usd, "min_tier": c.min_tier, "take_profit": c.take_profit, "stop": c.stop,
+                         "stop_after_first": c.get("stop_after_first"), "slippage_pct": c.slippage_pct,
+                         "fee_pct": c.fee_pct, "enabled": bool(c.enabled)}}
+
     @app.get("/api/failures")
     async def failures():
         """How launches end: what kills them, how fast."""

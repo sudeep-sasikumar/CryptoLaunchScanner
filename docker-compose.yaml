@@ -26,6 +26,9 @@
 #   CALL_MIN_CHANCE           optional - only call coins with at least this % chance of 2x (default 50; lower = more calls)
 #   CALLS_PER_HOUR            optional - most calls sent in one hour (default 10)
 #   PULL_PROOF_ONLY           optional - true (default): only call coins whose liquidity cannot be pulled; false = all
+#   PAPER_TRADING             optional - true (default): $ paper trade on every very high conviction call (no real money)
+#   PAPER_STAKE_USD           optional - paper stake per trade (default 25)
+#   PAPER_MIN_TIER            optional - 2 (default) = very high only, 1 = high and very high
 #   GMGN_WEIGHT_PER_SEC       optional - 5 on GMGN's free plan, 20 on Plus, 50 on Pro
 #   SOLANA_WS_URL             optional - a private Solana RPC websocket (e.g. free Helius key); steadier than the public one
 #   ANTHROPIC_API_KEY         optional - lets Claude rate each candidate's meme / narrative
@@ -49,6 +52,9 @@ services:
       CALLS_PER_HOUR: ${CALLS_PER_HOUR:-}
       CALL_MIN_CHANCE: ${CALL_MIN_CHANCE:-}
       PULL_PROOF_ONLY: ${PULL_PROOF_ONLY:-}
+      PAPER_TRADING: ${PAPER_TRADING:-}
+      PAPER_STAKE_USD: ${PAPER_STAKE_USD:-}
+      PAPER_MIN_TIER: ${PAPER_MIN_TIER:-}
       GMGN_WEIGHT_PER_SEC: ${GMGN_WEIGHT_PER_SEC:-}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}   # required: without it the dashboard stays off
       SOLANA_WS_URL: ${SOLANA_WS_URL:-}
