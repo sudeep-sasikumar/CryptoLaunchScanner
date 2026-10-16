@@ -24,6 +24,9 @@ sources:
       base:      {poll_s: 180, fast_poll_s: 45, only_launchpads: true}               # Clanker, Zora, Virtuals ...
     # dex ids that are bonding curves (liquidity held by the launchpad's program until it graduates)
     curve_dexes: [launchlab, meteora-dbc, pons-v2, four-meme, fourmeme, moonshot, boop, heaven, stonk, sunpump]
+  # never tracked: on 2026-10-14..16 every fluxbeam "launch" (60, named MASKED, DOPE, JitoSOL ...) was a
+  # pool farm with liquidity = market cap and the same 6x pump at ~49 min - fake wins that drew 20 calls
+  skip_launchpads: [fluxbeam]
   # one name per launchpad, whichever source reported it (GeckoTerminal dex id or GMGN platform name;
   # case-insensitive substring match, first match wins). Shown in alerts and learned as a factor.
   launchpad_names:
@@ -124,6 +127,7 @@ label:
   entry_slippage_pct: 3      # the call price is assumed to be this much worse than the last trade
   horizon_s: 21600           # 6 h
   idle_s: 900                # no trades for this long = the story is over, outcome is final
+  min_mcap_usd: 1000         # pools priced below this, or with zero liquidity, give junk multiples: not recorded
 
 # ---------------------------------------------------------------- when a call is sent
 call:

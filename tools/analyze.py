@@ -56,19 +56,32 @@ def label(k: str) -> str:
 
 
 # ------------------------------------------------------------------------------------------- loading
+def junk(s: dict, skip_pads=("fluxbeam",), min_mcap: float = 1000) -> bool:
+    """Same filters the scanner now applies (sources.skip_launchpads, label.min_mcap_usd): older
+    files still hold pool-farm launches and mispriced pools whose 'multiples' are not real."""
+    if s.get("launchpad") in skip_pads:
+        return True
+    mc = s.get("mcap_usd")
+    return s.get("family") == "dex" and ((mc is not None and mc < min_mcap) or (s.get("f") or {}).get("px_liq_usd") == 0)
+
+
 def load(folder: Path, days: int | None = None) -> tuple[list[dict], list[dict], list[str]]:
     files = sorted(p for p in folder.glob("*.jsonl.gz") if NAME.fullmatch(p.name))
     if days:
         files = files[-days:]
-    snaps, calls = [], []
+    snaps, calls, bad = [], [], set()
     for p in files:
         with gzip.open(p, "rt", encoding="utf-8") as fh:
             for line in fh:
                 r = json.loads(line)
                 if r.get("kind") == "snapshot":
-                    snaps.append(r)
+                    if junk(r):
+                        bad.add(r.get("id"))
+                    else:
+                        snaps.append(r)
                 elif r.get("kind") == "call":
                     calls.append(r)
+    calls = [c for c in calls if c.get("snapshot_id") not in bad]
     return snaps, calls, [p.name[:10] for p in files]
 
 

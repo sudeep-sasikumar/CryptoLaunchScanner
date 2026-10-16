@@ -84,6 +84,14 @@ class Engine:
         self.db.execute("UPDATE calls SET status='expired', closed_ts=? WHERE status='open'", (now,))
         if n:
             log.info("%d unfinished snapshots from the previous run set aside", n)
+        # recorded before these filters existed: skipped launchpads, mispriced pools
+        skip = list(self.cfg.sources.skip_launchpads)
+        n = self.db.execute(
+            f"UPDATE snapshots SET tainted=1 WHERE tainted=0 AND family='dex' AND (mcap_usd < ? OR token_id IN "
+            f"(SELECT id FROM tokens WHERE launchpad IN ({','.join('?' * len(skip)) or 'NULL'})))",
+            (self.cfg.label.min_mcap_usd, *skip)).rowcount
+        if n:
+            log.info("%d snapshots from skipped launchpads or mispriced pools set aside", n)
         r = self.db.one("SELECT path, ver FROM models WHERE family=? AND active=1 ORDER BY id DESC LIMIT 1", (ALL,))
         if r:
             self.models[ALL] = learner.Model.load(r["path"])
@@ -494,6 +502,9 @@ class Engine:
         f = dex_features(tok, cp, now, ctx)
         apply_gmgn(f, tok.gm, tok.gm_feed, own_trades=False)
         apply_intel(f, [self._fresh_cx(tok), tok.gti])
+        mc = f.get("px_mcap_usd")
+        if (mc is not None and mc < self.cfg.label.min_mcap_usd) or f.get("px_liq_usd") == 0:
+            return              # an empty or mispriced pool: its "multiples" (1,500x ...) would only teach noise
         self._record(tok, cp, now, f, tok.price)
 
     def _record(self, tok, cp: int, now: float, f: dict, price: float) -> None:
@@ -740,10 +751,13 @@ class Engine:
                     created = float(it.get("created_timestamp") or now)
                     if now - created > g.max_age_s or self.db.one("SELECT 1 FROM tokens WHERE id=?", (tid,)):
                         continue
+                    pad = self._pad(str(it.get("launchpad_platform") or it.get("launchpad") or "?"))
+                    if pad in self.cfg.sources.skip_launchpads:
+                        continue
                     progress = it.get("progress")
                     tok = DexToken(id=tid, chain=ours, address=addr, pool=str(it.get("pool_address") or ""),
                                    dex=str(it.get("exchange") or it.get("launchpad_platform") or ""),
-                                   launchpad=self._pad(str(it.get("launchpad_platform") or it.get("launchpad") or "?")),
+                                   launchpad=pad,
                                    name=str(it.get("name") or "")[:80], symbol=str(it.get("symbol") or "")[:40],
                                    created_ts=created)
                     tok.gm_feed = feed
@@ -793,6 +807,8 @@ class Engine:
                         continue
                     if p["chain"] == "solana" and p["address"].endswith("pump"):
                         continue                            # a pump.fun coin getting another pool is not a launch
+                    if p["launchpad"] in self.cfg.sources.skip_launchpads:
+                        continue
                     if self.db.one("SELECT 1 FROM tokens WHERE id=?", (tid,)):
                         continue
                     tok = DexToken(id=tid, chain=p["chain"], address=p["address"], pool=p["pool"], dex=p["dex"],

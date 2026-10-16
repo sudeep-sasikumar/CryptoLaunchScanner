@@ -107,3 +107,19 @@ def test_auc_basics():
     assert analyze.auc(x, (x > 5).astype(int)) == 1.0
     assert analyze.auc(-x, (x > 5).astype(int)) == 0.0
     assert analyze.auc(np.ones(10), (x > 5).astype(int)) == 0.5
+
+
+def test_skipped_launchpads_and_mispriced_pools_are_set_aside_at_start(tmp_path, monkeypatch):
+    e = _engine(tmp_path, monkeypatch, n=0)
+    fk, packed = e.db.pack({"px_mcap_usd": 1.0})
+    for tid, pad, mcap in (("solana:farm", "fluxbeam", 200000.0), ("solana:empty", "meteora-damm-v2", 1.0),
+                           ("solana:fine", "meteora-damm-v2", 20000.0)):
+        e.db.execute("INSERT INTO tokens(id,family,chain,launchpad) VALUES(?,?,?,?)", (tid, "dex", "solana", pad))
+        e.db.execute("INSERT INTO snapshots(token_id,family,cp,ts,price,mcap_usd,fkeys,features,done,hit,tainted) "
+                     "VALUES(?,?,?,?,?,?,?,?,?,?,?)", (tid, "dex", 60, DAY0, 1.0, mcap, fk, packed, 1, 1, 0))
+    e.db.commit()
+    asyncio.run(e.http.close())
+    e2 = Engine(e.cfg)
+    left = [r["token_id"] for r in e2.db.query("SELECT token_id FROM snapshots WHERE tainted=0")]
+    assert left == ["solana:fine"]
+    asyncio.run(e2.http.close())
