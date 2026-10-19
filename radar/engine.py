@@ -59,6 +59,7 @@ class Engine:
         self.telegram = Telegram(cfg.telegram, cfg.secret("TELEGRAM_BOT_TOKEN"), cfg.secret("TELEGRAM_CHAT_ID"), self.db)
         self.rep = Reputation(self.db, cfg.learn.wallets)
         self.paper = Paper(self.db, cfg.paper)
+        self.retraining = False
         self.paper_touch = 0.0
         self.telegram.on_command = self.command
         self.stream = PumpStream(src.pump.ws_url, src.pump.stall_s, self.on_pump_event, self.on_gap)
@@ -1027,6 +1028,9 @@ class Engine:
     # ------------------------------------------------------------------ learning
     async def train_loop(self) -> None:
         lc = self.cfg.learn
+        if not lc.get("auto_retrain", True):
+            log.info("automatic retraining is off: the model in use stays until a retrain is asked for")
+            return
         await asyncio.sleep(120)
         while True:
             for fam in (ALL,):
@@ -1037,7 +1041,9 @@ class Engine:
                 await self.retrain(fam)
             await asyncio.sleep(600)
 
-    async def retrain(self, fam: str) -> dict:
+    async def retrain(self, fam: str, promote: bool = True) -> dict:
+        """Train a challenger and test it against the model in use. With promote=False (a manual check)
+        it is only reported: "would_promote" says whether it passed, nothing in use changes."""
         self.db.commit()
         r = self.db.one("SELECT path FROM models WHERE family=? AND active=1 ORDER BY id DESC LIMIT 1", (fam,))
         args = (self.db.path, fam, dict(self.cfg.learn), dict(self.cfg.call), self.cfg.data_dir / "models",
@@ -1059,6 +1065,10 @@ class Engine:
         lift = report.pop("lift", None)
         if lift is not None:
             self.db.put(f"lift:{fam}", lift)
+        report["would_promote"] = bool(report.get("promoted"))
+        if not promote and report.get("promoted"):
+            report["promoted"] = False
+            report["note"] = "passed the tests - not switched to (check only)"
         self.db.put(f"learn:{fam}", report)
         self.last_train[fam] = report
         if report.get("promoted"):

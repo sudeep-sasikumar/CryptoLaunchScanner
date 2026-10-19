@@ -204,6 +204,35 @@ def build_app(engine) -> FastAPI:
                         "creators_n": db.one("SELECT COUNT(*) n FROM creators WHERE n_pulled>0")["n"]}
         return out
 
+    @app.post("/api/retrain")
+    async def retrain(request: Request):
+        """Manual retrain (automatic retraining is off). Starts in the background; GET /api/retrain has the
+        result. {"promote": false} only reports how a new model compares with the one in use;
+        {"promote": true} switches to it if it passes the usual tests. One at a time."""
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        if engine.retraining:
+            raise HTTPException(409, "a retrain is already running")
+        promote = bool((body or {}).get("promote"))
+        engine.retraining = {"started": time.time(), "promote": promote}
+
+        async def job():
+            try:
+                await engine.retrain("all", promote=promote)
+            finally:
+                engine.retraining = False
+        engine.spawn(job())
+        return {"started": True, "promote": promote}
+
+    @app.get("/api/retrain")
+    async def retrain_status():
+        last = {k: v for k, v in (engine.last_train.get("all") or {}).items() if k != "importance"}
+        active = db.one("SELECT ver, ts FROM models WHERE family='all' AND active=1 ORDER BY id DESC LIMIT 1")
+        return {"running": engine.retraining or None, "last": last, "in_use": dict(active) if active else None,
+                "auto_retrain": bool(cfg.learn.get("auto_retrain", True))}
+
     @app.get("/api/paper")
     async def paper(limit: int = 200):
         """Paper trades: the take-profit plan on live prices, no money involved."""

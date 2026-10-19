@@ -73,10 +73,23 @@ cashback / holder-reward modes, creator's launch count in 24 h, bonding-curve pr
 
 ## 4. How it improves itself
 
+**Since 2026-10-20 the model only changes when you ask.** Automatic retraining is off
+(`learn.auto_retrain: false`, `AUTO_RETRAIN` in Hostinger): the model in use and its call threshold stay
+fixed, while every coin is still recorded and graded. A retrain is started from the PC:
+
+| To... | Run (PowerShell) |
+|---|---|
+| see what is in use and how the last retrain went | `.venv\Scripts\python.exe tools\retrain.py --status` |
+| train a candidate and compare it, changing nothing | `.venv\Scripts\python.exe tools\retrain.py` |
+| ... and switch to it if it passes the tests below | `.venv\Scripts\python.exe tools\retrain.py --promote` |
+
+Still automatic (bookkeeping, not changes to the rules): wallet and creator records, liquidity look-ups and
+the creator-pull block, the conviction ranking against the last 24 h, the daily research files.
+
 1. **Labels.** Each snapshot is followed until it resolves. Nothing is assumed.
-2. **Retrain** every 12 h (once there are 1,500 labelled snapshots and 60 winners - roughly the first
-   day). One gradient-boosted model for all launchpads; the launchpad, chain and data source are
-   factors it can use if they matter.
+2. **Retrain** on request (with `AUTO_RETRAIN=true`: every 12 h, once there are 1,500 labelled snapshots
+   and 60 winners). One gradient-boosted model for all launchpads; the launchpad, chain and data source
+   are factors it can use if they matter.
 3. **Honest test.** History is split by time: fit on the oldest 70%, test on the newest 15% it never
    saw. The new model replaces the old one only if it clearly beats the hand scorecard, beats luck
    (99% of random rankings), and is no worse than the model in use.
@@ -280,7 +293,8 @@ dropped first.
 | `gates.max_creator_pulls` | 1 | A creator whose coin lost its liquidity is never called again |
 | `call.mcap_usd` | 4.5k - 400k | Mcap range a call may be in |
 | `gates.*` | | Vetoes. Safety ones always apply; the ones marked (*) step aside once a model is in use |
-| `learn.retrain_hours` | 12 | Retrain cadence |
+| `learn.auto_retrain` | false | Automatic retraining + promotion (`AUTO_RETRAIN`); off = only `tools\retrain.py` |
+| `learn.retrain_hours` | 12 | Retrain cadence when automatic |
 | `storage.max_gb` | 20 | Disk cap for database + models |
 
 Override without editing the file: `RADAR_OVERRIDES="call.top_pct=1;label.target=3"`.
@@ -331,5 +345,6 @@ radar/web/               dashboard
 radar/export.py          daily research files served at /api/research
 tools/sync_research.py   PC: daily copy of the research files + traits report
 tools/analyze.py         PC: what the 2x / 4x / 10x / 100x runners have in common
-tests/                   69 tests
+tools/retrain.py         PC: ask the VPS for a retrain (automatic retraining is off)
+tests/                   72 tests
 ```

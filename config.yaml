@@ -200,6 +200,9 @@ pulls:
 
 # ---------------------------------------------------------------- self-learning
 learn:
+  # Off since 2026-10-20 at the owner's request: the model in use and its call threshold stay fixed until a
+  # retrain is asked for (tools/retrain.py, from the PC). Every coin is still recorded and graded.
+  auto_retrain: false        # AUTO_RETRAIN=true brings back retraining + promotion every retrain_hours
   retrain_hours: 12
   min_rows: 1500             # labelled snapshots needed before a model is trained
   min_pos: 60                # ... of which this many winners

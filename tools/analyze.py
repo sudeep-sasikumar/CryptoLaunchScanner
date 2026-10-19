@@ -321,7 +321,7 @@ def report(rows: list[dict], calls: list[dict], days: list[str], checkpoint: int
     L += ["## Caveats", "",
           "- Only tokens active enough to be snapshotted are here; dead-on-arrival launches never enter the data.",
           "- One or two days is a small, single market regime: treat patterns as leads until they hold for a week+.",
-          "- 'Separation' looks at one factor at a time; the learned model combines them and is retrained on the VPS every 12 h.",
+          "- 'Separation' looks at one factor at a time; the learned model combines them; it is retrained only when asked (tools/retrain.py).",
           ""]
     return "\n".join(L)
 

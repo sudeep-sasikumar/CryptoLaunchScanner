@@ -29,6 +29,7 @@
 #   PAPER_TRADING             optional - true (default): $ paper trade on every very high conviction call (no real money)
 #   PAPER_STAKE_USD           optional - paper stake per trade (default 25)
 #   PAPER_MIN_TIER            optional - 2 (default) = very high only, 1 = high and very high
+#   AUTO_RETRAIN              optional - false (default): the model in use stays until a retrain is asked for; true = every 12 h
 #   GMGN_WEIGHT_PER_SEC       optional - 5 on GMGN's free plan, 20 on Plus, 50 on Pro
 #   SOLANA_WS_URL             optional - a private Solana RPC websocket (e.g. free Helius key); steadier than the public one
 #   ANTHROPIC_API_KEY         optional - lets Claude rate each candidate's meme / narrative
@@ -55,6 +56,7 @@ services:
       PAPER_TRADING: ${PAPER_TRADING:-}
       PAPER_STAKE_USD: ${PAPER_STAKE_USD:-}
       PAPER_MIN_TIER: ${PAPER_MIN_TIER:-}
+      AUTO_RETRAIN: ${AUTO_RETRAIN:-}
       GMGN_WEIGHT_PER_SEC: ${GMGN_WEIGHT_PER_SEC:-}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}   # required: without it the dashboard stays off
       SOLANA_WS_URL: ${SOLANA_WS_URL:-}
