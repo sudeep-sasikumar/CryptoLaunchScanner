@@ -26,6 +26,7 @@
 #   CALL_MIN_CHANCE           optional - only call coins with at least this % chance of 2x (default 50; lower = more calls)
 #   CALLS_PER_HOUR            optional - most calls sent in one hour (default 10)
 #   PULL_PROOF_ONLY           optional - true (default): only call coins whose liquidity cannot be pulled; false = all
+#   CALL_MIN_TIER             optional - 1 (default) = only 🔥 high and 🔥🔥 very high calls; 2 = very high only; 0 = all
 #   PAPER_TRADING             optional - true (default): $ paper trade on every very high conviction call (no real money)
 #   PAPER_STAKE_USD           optional - paper stake per trade (default 25)
 #   PAPER_MIN_TIER            optional - 2 (default) = very high only, 1 = high and very high
@@ -53,6 +54,7 @@ services:
       CALLS_PER_HOUR: ${CALLS_PER_HOUR:-}
       CALL_MIN_CHANCE: ${CALL_MIN_CHANCE:-}
       PULL_PROOF_ONLY: ${PULL_PROOF_ONLY:-}
+      CALL_MIN_TIER: ${CALL_MIN_TIER:-}
       PAPER_TRADING: ${PAPER_TRADING:-}
       PAPER_STAKE_USD: ${PAPER_STAKE_USD:-}
       PAPER_MIN_TIER: ${PAPER_MIN_TIER:-}

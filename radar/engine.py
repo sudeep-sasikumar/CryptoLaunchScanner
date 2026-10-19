@@ -698,8 +698,10 @@ class Engine:
         value = prob if kind == "prob" else prior
         hour_calls = sum(1 for t in self.call_ts if now - t <= 3600)
         moved = abs(tok.price / lb.entry - 1) if lb.entry else 0
+        tier = self.conviction(now, kind, value)
         ok = (not why_not and not tok.called and not tok.tainted and not lb.done and value is not None
-              and value >= cut and hour_calls < self.cfg.call.max_per_hour and moved < 0.25 and now - t0 < 30)
+              and value >= cut and hour_calls < self.cfg.call.max_per_hour and moved < 0.25 and now - t0 < 30
+              and tier >= self.cfg.call.get("min_tier", 0))   # only high / very high conviction is sent
         fkeys, packed = self.db.pack(f)
         self.db.execute("UPDATE snapshots SET fkeys=?, features=?, prior=?, prob=?, gate=?, called=? WHERE id=?",
                         (fkeys, packed, prior, prob, why_not, int(ok), snap_id))
@@ -708,7 +710,6 @@ class Engine:
         tok.called = True
         self.call_ts.append(now)
         self.counts["calls"] += 1
-        tier = self.conviction(now, kind, value)
         cur = self.db.execute(
             "INSERT INTO calls(snapshot_id,token_id,ts,price,mcap_usd,prior,prob,model_ver,reasons,tier) "
             "VALUES(?,?,?,?,?,?,?,?,?,?)",

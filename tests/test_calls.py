@@ -82,3 +82,28 @@ def test_call_message_names_the_conviction():
                      tier_cfg={"very_high_top_pct": 1, "high_top_pct": 5})
     assert text.startswith("🔥🔥 <b>VERY HIGH CONVICTION</b> — top 1% of the last 24 h")
     assert "CONVICTION" not in call_text(tok, {"age_s": 60}, 70.0, 0.8, "m1", [], [], None, c)
+
+
+async def test_only_high_and_very_high_conviction_calls_are_sent(tmp_path):
+    from radar.state import Label
+    e = Engine(cfg(f"app.data_dir={tmp_path.as_posix()};dashboard.enabled=false;paper.telegram=false"))
+    assert e.cfg.call.min_tier == 1
+    sent = []
+
+    async def fake_send(text, **k):
+        sent.append(text)
+        return [1]
+    e.telegram.send = fake_send
+    e.threshold = lambda now: ("prior", 0.0)
+    f = {"px_mcap_usd": 20000, "sec_checked": 1, "px_on_curve": 1, "launchpad": "pump.fun", "chain": "solana",
+         "rc_score": 1, "st_ok": 1, "cx_ok": 1, "gti_ok": 1, "age_s": 60}
+    for i, tier in enumerate((0, 1, 2)):
+        tok = SimpleNamespace(id=f"solana:T{i}pump", family="pump", address=f"T{i}pump", mint=f"T{i}pump", chain="solana",
+                              meta={}, called=False, tainted=False, price=1.0, symbol=f"T{i}", name="t", launchpad="pump.fun",
+                              pool=None)
+        lb = Label(i + 1, time.time(), 1.0, e.cfg.label)
+        e.conviction = lambda now, kind, value, t=tier: t
+        await e._consider(tok, lb, i + 1, dict(f), time.time())
+    assert len(sent) == 2 and "HIGH CONVICTION" in sent[0] and "VERY HIGH CONVICTION" in sent[1]
+    assert [r["tier"] for r in e.db.query("SELECT tier FROM calls ORDER BY id")] == [1, 2]
+    await e.http.close()

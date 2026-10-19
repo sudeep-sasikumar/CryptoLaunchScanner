@@ -244,6 +244,7 @@ printed to the console. `python main.py --minutes 5` runs a 5-minute smoke test;
    | `TELEGRAM_COMMANDS` | optional | `true` to answer `/status` `/calls` `/stats` - needs a bot of its own (Ignition & Coil already reads its bot's messages) |
    | `CALL_MIN_CHANCE` | optional | only call coins the model gives at least this % chance of 2x (default 50; lower = more calls, higher = fewer) |
    | `CALLS_PER_HOUR` | optional | most calls in one hour (default 10) |
+   | `CALL_MIN_TIER` | optional | `1` (default): only 🔥 high and 🔥🔥 very high calls are sent; `2`: very high only; `0`: every call |
    | `PULL_PROOF_ONLY` | optional | `true` (default): only call coins whose liquidity cannot be pulled; `false`: every launchpad |
    | `GMGN_WEIGHT_PER_SEC` | optional | 5 on GMGN's free plan, 20 Plus, 50 Pro |
    | `SOLANA_WS_URL`, `ANTHROPIC_API_KEY`, `DOMAIN` | optional | see `docker-compose.yaml` |
@@ -287,6 +288,7 @@ dropped first.
 | `call.max_per_hour` | 10 | Alert cap |
 | `paper.*` | $25, very high only | Paper trading: stake, tiers, take-profit ladder, stop, slippage, fees |
 | `call.conviction` | 5 / 1 | 🔥 high = top 5%, 🔥🔥 very high = top 1% of the last 24 h |
+| `call.min_tier` | 1 | Only send 🔥 high and 🔥🔥 very high calls (`CALL_MIN_TIER`: 2 = very high only, 0 = all) |
 | `sources.skip_launchpads` | fluxbeam | Never tracked (pool farms with fake runs) |
 | `call.pull_proof` | only: true | Calls only for coins on a bonding curve, or graduated on pump.fun / PONS / four.meme (LP burned or locked), or with 95%+ of the LP locked (`PULL_PROOF_ONLY`) |
 | `pulls.check_ages_h` | 6 / 24 / 48 | When DEX coins are looked up again to see whether their liquidity is still there |

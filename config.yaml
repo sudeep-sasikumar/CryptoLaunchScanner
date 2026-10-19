@@ -140,6 +140,8 @@ call:
   mcap_usd: {min: 4500, max: 400000}
   allow_unknown_quote: false # pump coins paired against a token with no USD price are recorded, not called
   require_safety_check: true # no call unless the contract check (GoPlus) answered - pump.fun coins included
+  min_tier: 1                # only send calls of at least this conviction: 1 = 🔥 high + 🔥🔥 very high, 2 = very high
+                             # only, 0 = every call that clears the bar (CALL_MIN_TIER). Others are still graded.
   conviction:                # extra label on a call, ranked against every snapshot of the last 24 h
     high_top_pct: 5          # 🔥 high: top 5% (2026-10-14..16: these 2x'd ~50%, 10x'd ~3%)
     very_high_top_pct: 1     # 🔥🔥 very high: top 1% (2x'd ~73%, 4x'd ~33%, 10x'd ~15%)

@@ -90,6 +90,7 @@ ENV_SETTINGS = {
     "CALLS_PER_HOUR": "call.max_per_hour",
     "CALL_MIN_SCORE": "call.min_prior",
     "PULL_PROOF_ONLY": "call.pull_proof.only",
+    "CALL_MIN_TIER": "call.min_tier",
     "PAPER_TRADING": "paper.enabled",
     "AUTO_RETRAIN": "learn.auto_retrain",
     "PAPER_STAKE_USD": "paper.stake_usd",

@@ -13,7 +13,7 @@ from .helpers import Curve, addr, cfg
 
 def _engine(tmp_path, extra: str = "") -> Engine:
     c = cfg(f"app.data_dir={tmp_path.as_posix()};dashboard.enabled=false;sources.metadata.enabled=false;"
-            f"sources.rugcheck.enabled=false;sources.goplus.enabled=false;sources.gecko_info.enabled=false;sources.llm.enabled=false;call.min_prior=40;call.require_safety_check=false;{extra}")
+            f"sources.rugcheck.enabled=false;sources.goplus.enabled=false;sources.gecko_info.enabled=false;sources.llm.enabled=false;call.min_prior=40;call.require_safety_check=false;call.min_tier=0;{extra}")
     e = Engine(c)
     e.quotes.usd[SYSTEM] = (100.0, time.time() + 1e6)           # SOL = $100, never stale
     return e
