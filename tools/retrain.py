@@ -35,7 +35,7 @@ def show(st: dict) -> None:
                   f"top 2% picks hit {((t.get('model') or {}).get('p_top2') or 0) * 100:.0f}% (candidate) vs "
                   f"{((t.get('current_model') or {}).get('p_top2') or 0) * 100:.0f}% (in use) vs "
                   f"{((t.get('scorecard') or {}).get('p_top2') or 0) * 100:.0f}% (scorecard)")
-        print(f"  passed the tests: {'yes' if last.get('would_promote') else 'no'}; switched to it: "
+        print(f"  passed the tests: {'yes' if last.get('would_promote', last.get('promoted')) else 'no'}; switched to it: "
               f"{'yes' if last.get('promoted') else 'no'}")
 
 
