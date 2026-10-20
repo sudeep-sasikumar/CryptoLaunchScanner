@@ -92,7 +92,7 @@ def test_open_trades_are_closed_at_their_last_price_after_a_restart(tmp_path):
 def test_only_the_chosen_tiers():
     p = Paper.__new__(Paper)
     p.cfg = C.paper
-    assert p.wants(2, {}) and not p.wants(1, {}) and not p.wants(0, {})
+    assert p.wants(2, {}) and p.wants(1, {}) and not p.wants(0, {})          # high and very high
 
 
 def test_engine_follows_paper_trades_every_tick(tmp_path):

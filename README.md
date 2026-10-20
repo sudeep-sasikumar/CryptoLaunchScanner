@@ -148,7 +148,7 @@ dumping): the coin is marked, its creator's record counts a pull (`cr_pulled_n`,
 and that creator is never called again. The dashboard's Learning tab shows the share of coins that lost
 their liquidity per launchpad and the creators who did it; the daily summary has one line on it.
 
-**Paper trading (2026-10-17, no money involved).** Every 🔥🔥 very high conviction call opens a $25 paper
+**Paper trading (2026-10-17, no money involved).** Every 🔥 high and 🔥🔥 very high conviction call opens a $25 paper
 trade (`paper` in config.yaml; `PAPER_TRADING`, `PAPER_STAKE_USD`, `PAPER_MIN_TIER` in Hostinger). It follows
 the call's own live price feed and runs the plan: 50% at 2x, 25% at 4x, 25% at 8x, everything at -50% before
 the first sale. Kept realistic: bought at the price when the call goes out +3%, every sell 3% below its target
@@ -286,7 +286,7 @@ dropped first.
 | `call.top_pct` | 2.0 | Before a model exists: call the top X% of scores (scorecard 75+ until 100 scores exist) |
 | `call.min_prob` / `call.target_precision` | 0.50 | With a model: minimum chance of 2x to call (`CALL_MIN_CHANCE`) |
 | `call.max_per_hour` | 10 | Alert cap |
-| `paper.*` | $25, very high only | Paper trading: stake, tiers, take-profit ladder, stop, slippage, fees |
+| `paper.*` | $25, high + very high | Paper trading: stake, tiers, take-profit ladder, stop, slippage, fees |
 | `call.conviction` | 5 / 1 | 🔥 high = top 5%, 🔥🔥 very high = top 1% of the last 24 h |
 | `call.min_tier` | 1 | Only send 🔥 high and 🔥🔥 very high calls (`CALL_MIN_TIER`: 2 = very high only, 0 = all) |
 | `sources.skip_launchpads` | fluxbeam | Never tracked (pool farms with fake runs) |

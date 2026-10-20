@@ -183,7 +183,7 @@ gates:                       # one list for every launchpad
 paper:
   enabled: true              # PAPER_TRADING=true/false
   stake_usd: 25              # PAPER_STAKE_USD
-  min_tier: 2                # 2 = very high conviction only, 1 = high and very high (PAPER_MIN_TIER)
+  min_tier: 1                # 1 = high and very high conviction (the calls that are sent), 2 = very high only (PAPER_MIN_TIER)
   take_profit:               # [multiple of the entry, share of the ORIGINAL position sold there]
     - [2, 0.50]              # the initial back
     - [4, 0.25]

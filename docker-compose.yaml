@@ -29,7 +29,7 @@
 #   CALL_MIN_TIER             optional - 1 (default) = only 🔥 high and 🔥🔥 very high calls; 2 = very high only; 0 = all
 #   PAPER_TRADING             optional - true (default): $ paper trade on every very high conviction call (no real money)
 #   PAPER_STAKE_USD           optional - paper stake per trade (default 25)
-#   PAPER_MIN_TIER            optional - 2 (default) = very high only, 1 = high and very high
+#   PAPER_MIN_TIER            optional - 1 (default) = high and very high, 2 = very high only
 #   AUTO_RETRAIN              optional - false (default): the model in use stays until a retrain is asked for; true = every 12 h
 #   GMGN_WEIGHT_PER_SEC       optional - 5 on GMGN's free plan, 20 on Plus, 50 on Pro
 #   SOLANA_WS_URL             optional - a private Solana RPC websocket (e.g. free Helius key); steadier than the public one
