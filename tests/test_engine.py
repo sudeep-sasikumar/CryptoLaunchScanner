@@ -181,3 +181,36 @@ async def test_quiet_launch_gets_no_snapshot_and_is_dropped(tmp_path):
     e._tick(now + 200)
     assert not e.pump and e.counts["doa"] == 1
     await e.http.close()
+
+
+async def test_graduated_coin_is_never_snapshotted_on_the_frozen_curve_price(tmp_path):
+    e = _engine(tmp_path)
+    now = time.time()
+    curve = Curve(ts=int(now - 61))
+    _launch(e, curve)
+    tok = e.pump[addr(1)]
+    tok.graduated_ts, tok.grad_usd_per_q = now - 20, 100.0          # finished its curve 20 s ago
+    e._tick(now)                                                     # 60 s checkpoint is due
+    assert e.counts["snapshots"] == 0 and e.counts.get("stale_after_grad") == 1
+    # with a real PumpSwap price the next checkpoint goes ahead
+    tok.on_price(now + 100, tok.price * 3)
+    assert not e._stale(tok, now + 110) and e._stale(tok, now + 200)
+    await e.http.close()
+
+
+def test_grades_taken_after_graduation_are_set_aside_once(tmp_path):
+    e = _engine(tmp_path)
+    now = time.time()
+    e.db.execute("INSERT INTO tokens(id,family,chain,launchpad,graduated_ts) VALUES('solana:G','pump','solana','pump.fun',?)",
+                 (now - 500,))
+    fk, packed = e.db.pack({"px_on_curve": 1})
+    for sid, ts in ((1, now - 600), (2, now - 400)):                  # before / after graduation
+        e.db.execute("INSERT INTO snapshots(id,token_id,family,cp,ts,price,fkeys,features,done,hit,tainted) "
+                     "VALUES(?,?,?,?,?,?,?,?,1,1,0)", (sid, "solana:G", "pump", 60, ts, 1.0, fk, packed))
+    e.db.execute("DELETE FROM kv WHERE k='cleanup:post_grad_v1'")
+    e.db.commit()
+    asyncio.run(e.http.close())
+    e2 = _engine(tmp_path)
+    assert [r["tainted"] for r in e2.db.query("SELECT tainted FROM snapshots ORDER BY id")] == [0, 1]
+    assert e2.db.get("cleanup:post_grad_v1")["set_aside"] == 1
+    asyncio.run(e2.http.close())

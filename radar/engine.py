@@ -97,6 +97,14 @@ class Engine:
             (self.cfg.label.min_mcap_usd, *skip)).rowcount
         if n:
             log.info("%d snapshots from skipped launchpads or mispriced pools set aside", n)
+        # snapshots of pump.fun coins taken after they graduated used the frozen curve price (until 2026-10-20):
+        # their "2x" grades are not real, so they are set aside once (and never trained on again)
+        if not self.db.get("cleanup:post_grad_v1"):
+            n = self.db.execute(
+                "UPDATE snapshots SET tainted=1 WHERE family='pump' AND tainted=0 AND EXISTS (SELECT 1 FROM tokens t "
+                "WHERE t.id = snapshots.token_id AND t.graduated_ts IS NOT NULL AND t.graduated_ts < snapshots.ts)").rowcount
+            self.db.put("cleanup:post_grad_v1", {"ts": now, "set_aside": n})
+            log.info("%d snapshots taken after graduation (frozen price) set aside", n)
         # DEX coins recorded before liquidity look-ups existed: take their most liquidity from the snapshots
         best: dict[str, float] = {}
         for row in self.db.query(
@@ -473,7 +481,15 @@ class Engine:
                 self.spawn(self._outcome_msg(tok, lb, f"x{lb.told:g}"))
 
     # ------------------------------------------------------------------ snapshots
+    def _stale(self, tok, now: float) -> bool:
+        """A graduated pump.fun coin without a fresh PumpSwap price: its price is the frozen curve price."""
+        return bool(isinstance(tok, PumpToken) and tok.graduated_ts and (
+            tok.grad_px_ts is None or now - tok.grad_px_ts > self.cfg.pump.get("grad_price_max_age_s", 45)))
+
     def _pump_snapshot(self, tok: PumpToken, cp: int, now: float) -> None:
+        if self._stale(tok, now):
+            self.counts["stale_after_grad"] = self.counts.get("stale_after_grad", 0) + 1
+            return
         g = self.cfg.activity_gate
         if (tok.n_buys < g["min_buys"] or len(tok.wallets) < g["min_buyers"]
                 or now - tok.last_trade_ts > g["max_idle_s"] or tok.price < tok.p0 * g["min_mcap_mult"]):
@@ -701,7 +717,8 @@ class Engine:
         tier = self.conviction(now, kind, value)
         ok = (not why_not and not tok.called and not tok.tainted and not lb.done and value is not None
               and value >= cut and hour_calls < self.cfg.call.max_per_hour and moved < 0.25 and now - t0 < 30
-              and tier >= self.cfg.call.get("min_tier", 0))   # only high / very high conviction is sent
+              and tier >= self.cfg.call.get("min_tier", 0)    # only high / very high conviction is sent
+              and not self._stale(tok, now))                  # never on a frozen post-graduation price
         fkeys, packed = self.db.pack(f)
         self.db.execute("UPDATE snapshots SET fkeys=?, features=?, prior=?, prob=?, gate=?, called=? WHERE id=?",
                         (fkeys, packed, prior, prob, why_not, int(ok), snap_id))
@@ -995,7 +1012,9 @@ class Engine:
                                 self.spawn(self._dex_snapshot(tok, cp))
                             else:
                                 self.counts["gated_out"] += 1
-                grads = [t for t in self.pump.values() if t.graduated_ts and t.grad_usd_per_q and t.open_labels()]
+                # every graduated coin still followed, not only those with open labels: a checkpoint due soon
+                # needs the real PumpSwap price, not the frozen curve price
+                grads = [t for t in self.pump.values() if t.graduated_ts and t.grad_usd_per_q and not t.tainted]
                 if grads:
                     pairs = await self.dexs.pairs("solana", [t.mint for t in grads])
                     now = time.time()

@@ -61,6 +61,8 @@ def junk(s: dict, skip_pads=("fluxbeam",), min_mcap: float = 1000) -> bool:
     files still hold pool-farm launches and mispriced pools whose 'multiples' are not real."""
     if s.get("launchpad") in skip_pads:
         return True
+    if s.get("family") == "pump" and (s.get("f") or {}).get("px_on_curve") == 0:
+        return True                    # taken after graduation on the frozen curve price (fixed 2026-10-20)
     mc = s.get("mcap_usd")
     return s.get("family") == "dex" and ((mc is not None and mc < min_mcap) or (s.get("f") or {}).get("px_liq_usd") == 0)
 

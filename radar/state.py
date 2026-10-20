@@ -117,6 +117,7 @@ class PumpToken:
         self.last_trade_ts = self.created_ts
         self.graduated_ts: float | None = None
         self.grad_usd_per_q: float | None = None
+        self.grad_px_ts: float | None = None     # last real (PumpSwap) price after graduation
 
         self.labels: list[Label] = []
         self.next_cp = 0                      # index into the checkpoint list
@@ -208,6 +209,7 @@ class PumpToken:
     def on_price(self, ts: float, price_q: float, volume_q: float = 0.0) -> list[tuple[Label, str]]:
         """A polled price after graduation (no trade detail), already converted to quote units."""
         self.price = price_q
+        self.grad_px_ts = ts
         if price_q > self.max_price:
             self.max_price, self.max_ts, self.low_after_max = price_q, ts, price_q
         elif price_q < self.low_after_max:

@@ -113,6 +113,10 @@ activity_gate:               # tokens below this at a checkpoint are not worth a
   min_liquidity_usd: 4000    # pools only (a bonding curve always has liquidity)
 
 pump:
+  # after graduation trading moves to PumpSwap, which the pump.fun stream does not carry: the price is polled
+  # (DexScreener) and a coin is only snapshotted or called with a real post-graduation price this fresh.
+  # Before 2026-10-20 the last curve price was used - 2.5-5x below the real one, which faked "2x" grades.
+  grad_price_max_age_s: 45
   doa_age_s: 150             # dead on arrival: dropped from memory at this age with fewer than doa_buys buys
   doa_buys: 8
   sniper_slots: 5            # buys within this many slots (~0.4 s each) after the creation slot count as snipers
