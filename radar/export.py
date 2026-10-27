@@ -45,13 +45,14 @@ def build_day(db_path: Path, day: str) -> bytes:
         for r in con.execute(
                 "SELECT s.id, s.token_id, s.family, s.cp, s.ts, s.token_created_ts, s.price, s.mcap_usd, s.fkeys, "
                 "s.features, s.prior, s.prob, s.model_ver, s.gate, s.called, s.done, s.hit, s.stopped, "
-                "s.peak_mult, s.min_mult, s.end_mult, s.t_hit, s.t_stop, s.t_peak, s.end_reason, "
+                "s.peak_mult, s.min_mult, s.end_mult, s.t_hit, s.t_stop, s.t_peak, s.end_reason, s.tx, "
                 "t.launchpad, t.chain, t.symbol, t.name FROM snapshots s LEFT JOIN tokens t ON t.id = s.token_id "
                 "WHERE s.ts >= ? AND s.ts < ? AND s.tainted = 0 AND (s.done = 1 OR s.hit = 1)", (start, end)):
             row = dict(r)
             vals = json.loads(row.pop("features") or "null")
             keys = layouts.get(row.pop("fkeys"))
             row["f"] = dict(zip(keys, vals)) if keys and isinstance(vals, list) else (vals or {})
+            row["tx"] = json.loads(row["tx"]) if row.get("tx") else None
             put({"kind": "snapshot", **row})
         for r in con.execute("SELECT * FROM calls WHERE ts >= ? AND ts < ?", (start, end)):
             put({"kind": "call", **dict(r)})

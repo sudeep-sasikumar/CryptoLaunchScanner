@@ -211,3 +211,15 @@ def test_credit_updates_wallets_and_creator(tmp_path):
     cr = db.one("SELECT * FROM creators WHERE addr=?", (tok.user,))
     assert cr["n_created"] == 1 and cr["n_snap"] == 1 and cr["n_win"] == 1
     assert rep.base["n"] == 40 and rep.base["win"] >= 20
+
+
+def test_label_records_how_tradeable_the_move_was():
+    import json
+    from radar.state import Label
+    from .helpers import cfg
+    lb = Label(1, 0.0, 1.0 / 1.03, cfg().label)
+    for t, p in ((15, 0.9), (30, 1.2), (60, 1.6), (90, 2.1), (150, 2.4), (200, 1.7), (260, 3.2)):
+        lb.update(t, p)
+    tx = json.loads(lb.tradeable(300))
+    assert tx["t"] == {"1.5": 60, "2": 90, "3": 260} and tx["hold2"] == 110      # 2x at 90 s, below 1.8x at 200 s
+    assert tx["low_pre"] == 0.9 and tx["m30"] == 1.2 and tx["m60"] == 1.6

@@ -100,6 +100,7 @@ class DB:
         self._add_columns("tokens", {"liq_max_usd": "REAL", "pull_state": "INTEGER", "pull_checks": "INTEGER DEFAULT 0",
                                      "pull_ts": "REAL", "liq_now_usd": "REAL"})
         self._add_columns("creators", {"n_pulled": "INTEGER DEFAULT 0", "n_kept": "INTEGER DEFAULT 0"})
+        self._add_columns("snapshots", {"tx": "TEXT"})          # how tradeable the move was (Label.tradeable)
         self._in_tx = False
         self._layouts: dict[tuple, int] = {}
         self._keys: dict[int, tuple] = {}

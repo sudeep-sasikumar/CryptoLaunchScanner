@@ -21,7 +21,9 @@ class Label:
     """Did price reach target x entry before falling to stop x entry?  All prices are in the
     token's own quote unit, so the multiple is exact whatever the quote is."""
     __slots__ = ("snap_id", "call_id", "t0", "entry", "target", "stop", "horizon_end", "peak", "t_peak",
-                 "low", "last", "hit", "t_hit", "stopped", "t_stop", "done", "end_reason", "tainted", "told")
+                 "low", "last", "hit", "t_hit", "stopped", "t_stop", "done", "end_reason", "tainted", "told",
+                 "t_lv", "hold2", "low_pre", "m30", "m60")
+    LEVELS = (1.5, 2.0, 3.0, 5.0, 8.0)
 
     def __init__(self, snap_id: int, t0: float, price: float, cfg):
         self.snap_id, self.call_id, self.t0 = snap_id, None, t0
@@ -34,6 +36,12 @@ class Label:
         self.told = 0.0                       # highest multiple already announced to the user (runner updates)
         self.t_hit = self.t_stop = None
         self.end_reason = None
+        # how tradeable the move was: first time at each level (s), how long it stayed >= 1.8x after first
+        # reaching 2x (None while still there), the deepest dip before 2x, the multiple 30 s / 60 s later
+        self.t_lv: dict = {}
+        self.hold2: float | None = None
+        self.low_pre = self.last
+        self.m30 = self.m60 = None
 
     def update(self, ts: float, price: float) -> str | None:
         """Feed one price (a closed bar's average, or a polled price). Returns 'hit' / 'stop' the
@@ -42,6 +50,18 @@ class Label:
             return None
         m = price / self.entry
         self.last = m
+        dt = ts - self.t0
+        if self.m30 is None and dt >= 30:
+            self.m30 = m
+        if self.m60 is None and dt >= 60:
+            self.m60 = m
+        for k in self.LEVELS:
+            if k not in self.t_lv and m >= k:
+                self.t_lv[k] = dt
+        if 2.0 not in self.t_lv:
+            self.low_pre = min(self.low_pre, m)
+        elif self.hold2 is None and m < 1.8:
+            self.hold2 = dt - self.t_lv[2.0]
         if m > self.peak:
             self.peak, self.t_peak = m, ts - self.t0
         if m < self.low:
@@ -65,13 +85,26 @@ class Label:
         if not self.done and now >= self.horizon_end:
             self.finish("horizon")
 
+    def tradeable(self, now: float) -> str:
+        """JSON: t = first seconds at 1.5/2/3/5/8x; hold2 = seconds it stayed >= 1.8x after first reaching 2x
+        (to the end of following if it never dropped); low_pre = deepest dip before 2x; m30/m60 = the multiple
+        30 s / 60 s after the snapshot (a realistic late buy)."""
+        import json
+        hold2 = self.hold2
+        if hold2 is None and 2.0 in self.t_lv:
+            hold2 = (now - self.t0) - self.t_lv[2.0]
+        return json.dumps({"t": {f"{k:g}": round(v) for k, v in self.t_lv.items()},
+                           "hold2": None if hold2 is None else round(hold2),
+                           "low_pre": round(self.low_pre, 4), "m30": None if self.m30 is None else round(self.m30, 4),
+                           "m60": None if self.m60 is None else round(self.m60, 4)}, separators=(",", ":"))
+
     def row(self, now: float) -> tuple:
         return (1, int(self.tainted), int(self.hit), int(self.stopped), self.peak, self.low, self.last,
-                self.t_hit, self.t_stop, self.t_peak, self.end_reason, now, self.snap_id)
+                self.t_hit, self.t_stop, self.t_peak, self.end_reason, now, self.tradeable(now), self.snap_id)
 
 
 LABEL_SQL = ("UPDATE snapshots SET done=?, tainted=?, hit=?, stopped=?, peak_mult=?, min_mult=?, end_mult=?, "
-             "t_hit=?, t_stop=?, t_peak=?, end_reason=?, done_ts=? WHERE id=?")
+             "t_hit=?, t_stop=?, t_peak=?, end_reason=?, done_ts=?, tx=? WHERE id=?")
 
 
 class PumpToken:

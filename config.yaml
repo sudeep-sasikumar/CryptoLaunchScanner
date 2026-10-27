@@ -190,7 +190,8 @@ paper:
     - [8, 0.25]
   stop: 0.5                  # before the first take-profit: sell everything at this multiple (-50%)
   stop_after_first: null     # after it: e.g. 1.0 = sell the rest if it falls back to the entry price
-  slippage_pct: 3            # buy this much above the price when the call goes out; every sell this much below
+  entry_delay_s: 30          # bought this long after the call goes out (time to react), at the price then
+  slippage_pct: 3            # buy this much above that price; every sell this much below
   fee_pct: 1.0               # per buy and per sell (trading-bot / platform fee)
   telegram: true             # reply under the call with each paper sell
 

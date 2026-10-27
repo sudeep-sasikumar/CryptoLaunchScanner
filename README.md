@@ -151,7 +151,7 @@ their liquidity per launchpad and the creators who did it; the daily summary has
 **Paper trading (2026-10-17, no money involved).** Every 🔥 high and 🔥🔥 very high conviction call opens a $25 paper
 trade (`paper` in config.yaml; `PAPER_TRADING`, `PAPER_STAKE_USD`, `PAPER_MIN_TIER` in Hostinger). It follows
 the call's own live price feed and runs the plan: 50% at 2x, 25% at 4x, 25% at 8x, everything at -50% before
-the first sale. Kept realistic: bought at the price when the call goes out +3%, every sell 3% below its target
+the first sale. Kept realistic: bought 30 s after the call goes out (time to react) at the price then +3%, every sell 3% below its target
 (a stop that is gapped through fills at the price actually seen), 1% fee on each buy and sell; what is still
 held when the scanner stops following the coin (6 h at most) is sold at the last price. Each sale is replied
 silently under the call, the daily summary has a line, and the dashboard's "Paper trading" tab lists every

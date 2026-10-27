@@ -12,12 +12,12 @@ from radar.state import Label
 
 from .helpers import cfg
 
-C = cfg()
+C = cfg("paper.entry_delay_s=0")               # these check the arithmetic: buy at once
 K = 0.97 * 0.99                                       # every sell: 3% slippage, 1% fee
 
 
 def _setup(tmp_path, price_now=1.0, overrides=""):
-    c = cfg(overrides) if overrides else C
+    c = cfg("paper.entry_delay_s=0;" + overrides) if overrides else C
     db = DB(tmp_path / "radar.db")
     paper = Paper(db, c.paper)
     lb = Label(1, 0.0, 1.0 / 1.03, c.label)          # label entry 1.0 (snapshot price + 3%)
@@ -98,7 +98,7 @@ def test_only_the_chosen_tiers():
 def test_engine_follows_paper_trades_every_tick(tmp_path):
     import asyncio
     from radar.engine import Engine
-    e = Engine(cfg(f"app.data_dir={tmp_path.as_posix()};dashboard.enabled=false;paper.telegram=false"))
+    e = Engine(cfg(f"app.data_dir={tmp_path.as_posix()};dashboard.enabled=false;paper.telegram=false;paper.entry_delay_s=0"))
     lb = Label(1, 0.0, 1.0 / 1.03, e.cfg.label)
     e.paper.open(9, SimpleNamespace(id="solana:Ypump", symbol="Y", launchpad="pump.fun"), lb, 2, 1.0 / 1.03, time.time())
     lb.update(1.0, 0.4)
@@ -107,3 +107,35 @@ def test_engine_follows_paper_trades_every_tick(tmp_path):
     assert e.db.one("SELECT reason FROM paper WHERE call_id=9")["reason"] == "stop -50%"
     assert "Paper trading: 1 closed" in e.summary_text()
     asyncio.run(e.http.close())
+
+
+def test_bought_after_the_reaction_delay_at_the_price_then(tmp_path):
+    db = DB(tmp_path / "radar.db")
+    c = cfg("paper.entry_delay_s=30")
+    paper = Paper(db, c.paper)
+    lb = Label(1, 0.0, 1.0 / 1.03, c.label)
+    t0 = time.time()
+    paper.open(7, SimpleNamespace(id="solana:Zpump", symbol="Z", launchpad="pump.fun"), lb, 1, 1.0 / 1.03, t0)
+    lb.update(1.0, 1.5)                                # ran +50% while we were reacting
+    paper.step(t0 + 10)
+    assert paper.live[7]["fill_at"] is not None        # not bought yet
+    paper.step(t0 + 31)                                # bought now, at 1.5 (+3%)
+    lb.update(16.0, 2.9)                               # 2.9 / (1.5 * 1.03) = 1.88x: no sale yet
+    paper.step(t0 + 32)
+    assert paper.live[7]["left"] == 1.0
+    lb.update(31.0, 3.2)                               # 3.2 / 1.545 = 2.07x: first sale
+    paper.step(t0 + 33)
+    assert paper.live[7]["left"] == pytest.approx(0.5)
+
+
+def test_no_buy_when_following_ends_before_the_fill(tmp_path):
+    db = DB(tmp_path / "radar.db")
+    c = cfg("paper.entry_delay_s=30")
+    paper = Paper(db, c.paper)
+    lb = Label(1, 0.0, 1.0 / 1.03, c.label)
+    t0 = time.time()
+    paper.open(8, SimpleNamespace(id="solana:Wpump", symbol="W", launchpad="pump.fun"), lb, 1, 1.0 / 1.03, t0)
+    lb.update(1.0, 0.4)                                # dumped through the label's stop at once
+    paper.step(t0 + 5)
+    r = db.one("SELECT * FROM paper WHERE call_id=8")
+    assert r["state"] == "closed" and r["reason"].startswith("not filled") and r["pnl_usd"] == 0

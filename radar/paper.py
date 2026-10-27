@@ -2,7 +2,8 @@
 
 Each paper trade follows the call's own price feed (the same 15-second bar averages that grade the call),
 so it needs no extra data. Kept realistic on purpose:
-- bought at the price when the call goes out (not the snapshot's), plus `slippage_pct`
+- bought `entry_delay_s` after the call goes out (the time to react), at the price then, plus `slippage_pct`;
+  a coin whose following ends before that is not bought
 - every sell fills `slippage_pct` below its target; a stop that is gapped through fills at the price seen
 - `fee_pct` charged on every buy and sell
 - whatever is still held when the scanner stops following the coin (6 h at most) is sold at the last price
@@ -53,15 +54,17 @@ class Paper:
 
     # ------------------------------------------------------------------ opening
     def open(self, call_id: int, tok, lb, tier: int, price_now: float, now: float) -> None:
-        """Buy at the price when the call goes out (+ slippage), however far it moved since the snapshot."""
+        """Order placed when the call goes out; filled `entry_delay_s` later at the price then (+ slippage)."""
         c = self.cfg
+        delay = float(c.get("entry_delay_s") or 0)
         entry = price_now * (1 + c.slippage_pct / 100.0)
         factor = lb.entry / entry if entry > 0 else 1.0       # label multiple x factor = this trade's multiple
         stake = float(c.stake_usd)
         pos = {"call_id": call_id, "lb": lb, "factor": factor, "stake": stake, "left": 1.0,
                "cash": -stake * c.fee_pct / 100.0,            # buy fee
-               "peak": lb.peak * factor, "low": lb.last * factor, "last": lb.last * factor,
-               "steps": [], "opened": now, "next": 0, "first_done": False, "t_first": None}
+               "peak": 1.0, "low": 1.0, "last": 1.0,
+               "steps": [], "opened": now, "next": 0, "first_done": False, "t_first": None,
+               "fill_at": now + delay if delay > 0 else None}
         self.live[call_id] = pos
         self.db.execute("INSERT OR IGNORE INTO paper(call_id,token_id,symbol,launchpad,tier,opened_ts,stake_usd,factor,"
                         "left,cash,last,peak,low_pre) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -76,11 +79,24 @@ class Paper:
         out = []
         for cid, pos in list(self.live.items()):
             lb = pos["lb"]
-            m_last, m_peak, m_low = lb.last * pos["factor"], lb.peak * pos["factor"], lb.low * pos["factor"]
+            if pos.get("fill_at") is not None:
+                if lb.done:                                   # nothing left to buy into
+                    self.live.pop(cid, None)
+                    self.db.execute("UPDATE paper SET state='closed', reason='not filled (following ended)', "
+                                    "pnl_usd=0, cash=0, closed_ts=? WHERE call_id=?", (now, cid))
+                    continue
+                if now < pos["fill_at"]:
+                    continue
+                # filled now, at the current price + slippage: multiples are counted from here
+                pos["factor"] = 1.0 / (lb.last * (1 + self.cfg.slippage_pct / 100.0))
+                pos["fill_at"] = None
+                self.db.execute("UPDATE paper SET factor=? WHERE call_id=?", (pos["factor"], cid))
+                continue
+            m_last = lb.last * pos["factor"]
             pos["last"] = m_last
-            pos["peak"] = max(pos["peak"], m_peak)
+            pos["peak"] = max(pos["peak"], m_last)
             if not pos["first_done"]:
-                pos["low"] = min(pos["low"], m_low)
+                pos["low"] = min(pos["low"], m_last)
             msgs = self._sells(pos, now)
             if pos["left"] > 1e-9 and lb.done:
                 msgs.append(self._sell(pos, pos["left"], m_last, now, "end of tracking"))

@@ -247,6 +247,7 @@ def build_app(engine) -> FastAPI:
         return {"trades": out, "all": engine.paper.stats(), "day": engine.paper.stats(time.time() - 86400),
                 "plan": {"stake_usd": c.stake_usd, "min_tier": c.min_tier, "take_profit": c.take_profit, "stop": c.stop,
                          "stop_after_first": c.get("stop_after_first"), "slippage_pct": c.slippage_pct,
+                         "entry_delay_s": c.get("entry_delay_s") or 0,
                          "fee_pct": c.fee_pct, "enabled": bool(c.enabled)}}
 
     @app.get("/api/failures")

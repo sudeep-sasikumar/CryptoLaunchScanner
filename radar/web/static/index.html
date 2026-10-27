@@ -127,7 +127,7 @@ const VIEWS = {
       <div class="card"><span>Last 24 h</span><b class="${day.pnl >= 0 ? "good" : "bad"}">${usd(day.pnl)}</b></div>
       <div class="card"><span>Open now</span><b>${a.open}</b></div></div>
       <p class="note"><b>No real money.</b> ${p.enabled ? "On" : "<b>Off</b>"}: $${p.stake_usd} on every ${p.min_tier >= 2 ? "🔥🔥 very high" : "🔥 high or 🔥🔥 very high"} conviction call.
-      Bought at the price when the call goes out +${p.slippage_pct}%; sells ${plan}; before the first sale everything goes at ${Math.round((p.stop - 1) * 100)}%${p.stop_after_first != null ? `, after it the rest goes at ${Math.round((p.stop_after_first - 1) * 100)}%` : ""}.
+      Bought ${p.entry_delay_s ? p.entry_delay_s + " s after the call (time to react) at the price then" : "at the price when the call goes out"} +${p.slippage_pct}%; sells ${plan}; before the first sale everything goes at ${Math.round((p.stop - 1) * 100)}%${p.stop_after_first != null ? `, after it the rest goes at ${Math.round((p.stop_after_first - 1) * 100)}%` : ""}.
       Every sell fills ${p.slippage_pct}% below its target, ${p.fee_pct}% fee on each buy and sell. What is still held when the scanner stops following the coin (6 h at most) is sold at the last price.
       "Low before 2x" is the deepest dip before the first sale - it shows what a tighter stop would have done.</p>`;
     html += table(["Opened","Token","Launchpad","Conviction","Status","#Low before 2x","#Best","#Now / at close","Sales","#P&L"], d.trades.map(t =>
