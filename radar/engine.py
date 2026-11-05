@@ -26,7 +26,7 @@ from .notify import Telegram, call_text, esc, message_ids, money
 from .scoring import gate, prior_score
 from .sources.dexscreener import SYSTEM, DexScreener, QuoteBook
 from .sources.gecko import Gecko, canonical_launchpad
-from .sources.gmgn import OURS, Gmgn, from_trenches
+from .sources.gmgn import OURS, Gmgn, from_trenches, signal_row, trench_stats
 from .sources.intel import Codex, GeckoInfo, SolanaTracker
 from .sources.metadata import Metadata
 from .sources.pump_stream import PumpStream
@@ -62,14 +62,17 @@ class Engine:
         self.retraining = False
         self.paper_touch = 0.0
         self.telegram.on_command = self.command
-        self.stream = PumpStream(src.pump.ws_url, src.pump.stall_s, self.on_pump_event, self.on_gap)
+        self.stream = PumpStream(src.pump.ws_url, src.pump.stall_s, self.on_pump_event, self.on_gap,
+                                 fallback_url=src.pump.get("fallback_ws_url"), switch_after=src.pump.get("switch_after") or 3,
+                                 retry_primary_s=src.pump.get("retry_primary_s") or 1800)
 
         self.pump: dict[str, PumpToken] = {}
         self.dex: dict[str, DexToken] = {}
         self.models: dict[str, learner.Model | None] = {ALL: None}
         self.started = self.last_tick = time.time()
         self.counts = {k: 0 for k in ("creates", "trades", "graduations", "snapshots", "gated_out", "calls",
-                                      "labels", "hits", "doa", "finalized", "gaps", "dex_found")}
+                                      "labels", "hits", "doa", "finalized", "gaps", "dex_found",
+                                      "gm_list_hits", "gm_lookups", "gm_signals")}
         self.create_ts: deque[float] = deque(maxlen=4000)
         self.grad_ts: deque[float] = deque(maxlen=2000)
         self.call_ts: deque[float] = deque(maxlen=200)
@@ -148,6 +151,9 @@ class Engine:
             loops += [self.discover_loop(net) for net in self.cfg.sources.gecko.networks]
         if self.gmgn.enabled:
             loops += [self.gmgn_feed_loop(name) for name in self.cfg.sources.gmgn.chains]
+            sig = self.cfg.sources.gmgn.get("signals") or {}
+            if sig.get("enabled"):
+                loops += [self.gmgn_signal_loop(chain) for chain in sig.get("chains") or []]
         loops.append(self.telegram.poll_commands())
         if self.codex.enabled:
             loops.append(self.codex_loop())
@@ -654,18 +660,24 @@ class Engine:
             except Exception:   # noqa: BLE001
                 log.exception("Codex batch failed")
 
-    async def _gm_fetch(self, tok) -> dict | None:
-        """GMGN's numbers for a token; contract safety is fetched once, the rest refreshed each time."""
+    async def _gm_fetch(self, tok, force: bool = False) -> dict | None:
+        """GMGN's numbers for a token. A reading from GMGN's launch lists younger than `list_fresh_s` is used
+        as it is (no request); otherwise - and always for a call finalist (`force`), which also gets the
+        creator's best earlier coin - token info is fetched. Contract safety is fetched once."""
         if not self.gmgn.enabled:
             return None
+        gm = tok.gm or {}
+        fresh = time.time() - (gm.get("_gm_ts") or 0) <= float(self.cfg.sources.gmgn.get("list_fresh_s") or 60)
+        if fresh and gm.get("gm_sec_ok") and not (force and not gm.get("_gm_info")):
+            return tok.gm
         address = tok.mint if isinstance(tok, PumpToken) else tok.address
+        self.counts["gm_lookups"] += 1
         try:
-            g = await asyncio.wait_for(
-                self.gmgn.token(tok.chain, address, with_security=not (tok.gm or {}).get("gm_sec_ok")), 10)
+            g = await asyncio.wait_for(self.gmgn.token(tok.chain, address, with_security=not gm.get("gm_sec_ok")), 10)
         except asyncio.TimeoutError:
             g = None
         if g:
-            tok.gm = {**(tok.gm or {}), **g}
+            tok.gm = {**(tok.gm or {}), **g, "_gm_ts": time.time(), "_gm_info": 1}
         return tok.gm
 
     async def _enrich_pump(self, tok: PumpToken, lb: Label, snap_id: int, f: dict, t0: float) -> None:
@@ -698,6 +710,8 @@ class Engine:
             jobs.append(self.gtinfo.lookup(tok.chain, address, max_backlog_s=20))
         if not f.get("sec_checked"):                       # never call a coin whose contract was not checked
             jobs.append(self._safety_retry(tok, f))
+        elif self.gmgn.enabled and not (tok.gm or {}).get("_gm_info"):
+            jobs.append(self._gm_fetch(tok, force=True))   # latest GMGN view + the creator's best earlier coin
         if self.narrator.enabled and "llm" not in (tok.meta or {}):
             jobs.append(self._rate(tok))
         if jobs:
@@ -803,9 +817,16 @@ class Engine:
         self.counts["finalized"] += 1
 
     # ------------------------------------------------------------------ other launchpads
+    def _followed(self, ours: str, addr: str):
+        if ours == "solana" and addr in self.pump:
+            return self.pump[addr]
+        return self.dex.get(f"{ours}:{addr}") or self.dex.get(f"{ours}:{addr.lower()}")
+
     async def gmgn_feed_loop(self, name: str) -> None:
-        """New launches on every launchpad of one chain from GMGN, seconds after creation. For pump.fun
-        (read from the chain itself) the feed only adds socials: X followers, TG calls, reused links."""
+        """GMGN's three launch lists for one chain (new, about to graduate, graduated) in one request.
+        Every token we follow that appears in them gets GMGN's figures from the list item - holders, wallet
+        labels, creator history, socials - so it needs no token-info request of its own. New launches on
+        launchpads other than pump.fun (read from the chain itself) are found here, seconds after creation."""
         g = self.cfg.sources.gmgn
         c = g.chains[name]
         chain = c.get("chain", name)
@@ -813,22 +834,29 @@ class Engine:
         socials_only = bool(c.get("socials_only"))
         while True:
             try:
-                items = await self.gmgn.trenches(chain, list(c.get("platforms") or []), g.feed_limit)
+                lists = await self.gmgn.trenches(chain, list(c.get("platforms") or []), g.feed_limit)
+                if isinstance(lists, list):                 # older shape: the new-launch list alone
+                    lists = {"new_creation": lists}
                 now = time.time()
-                for it in items:
+                for lname, items in lists.items():
+                    for it in items:
+                        addr = it["address"]
+                        if not str(addr).isalnum():
+                            continue                        # addresses end up in links: accept only plain ones
+                        tok = self._followed(ours, addr)
+                        if tok is not None:
+                            tok.gm_feed = from_trenches(it)
+                            tok.gm = {**(tok.gm or {}), **trench_stats(it, chain), "_gm_ts": now, "_gm_list": lname}
+                            self.counts["gm_list_hits"] += 1
+                if socials_only:
+                    await asyncio.sleep(c["poll_s"])
+                    continue
+                for it in lists.get("new_creation") or []:
                     addr = it["address"]
-                    if not str(addr).isalnum():
-                        continue                            # addresses end up in links: accept only plain ones
-                    feed = from_trenches(it)
-                    if ours == "solana" and addr in self.pump:
-                        self.pump[addr].gm_feed = feed
-                        continue
-                    if socials_only:
+                    if not str(addr).isalnum() or self._followed(ours, addr) is not None:
                         continue
                     tid = f"{ours}:{addr}"
-                    if tid in self.dex:
-                        self.dex[tid].gm_feed = feed
-                        continue
+                    feed = from_trenches(it)
                     created = float(it.get("created_timestamp") or now)
                     if now - created > g.max_age_s or self.db.one("SELECT 1 FROM tokens WHERE id=?", (tid,)):
                         continue
@@ -842,6 +870,7 @@ class Engine:
                                    name=str(it.get("name") or "")[:80], symbol=str(it.get("symbol") or "")[:40],
                                    created_ts=created)
                     tok.gm_feed = feed
+                    tok.gm = {**trench_stats(it, chain), "_gm_ts": now, "_gm_list": "new_creation"}
                     tok.on_curve = None if progress is None else float(progress) < 0.999
                     tok.seen = self._seen(tok, created)
                     self.dex[tid] = tok
@@ -849,6 +878,35 @@ class Engine:
             except Exception:   # noqa: BLE001
                 log.exception("GMGN feed failed for %s", name)
             await asyncio.sleep(c["poll_s"])
+
+    async def gmgn_signal_loop(self, chain: str) -> None:
+        """GMGN's signal events for one chain (smart money / KOL buys, price spikes, DexScreener ads, CTO,
+        fee claims): stored as they fired, and counted on every token we follow - only events that already
+        happened, so the counts are what was known at that moment."""
+        sig = self.cfg.sources.gmgn.signals
+        ours = OURS.get(chain, chain)
+        groups = [{"signal_type": list(t)} for t in sig.groups]
+        names = {int(k): v for k, v in (sig.names or {}).items()}
+        while True:
+            try:
+                items = await self.gmgn.signals(chain, groups)
+                now = time.time()
+                for it in items:
+                    r = signal_row(it)
+                    cur = self.db.execute(
+                        "INSERT OR IGNORE INTO gm_signals(id,chain,address,type,trigger_at,trigger_mc,first_mc,times,seen_ts) "
+                        "VALUES(?,?,?,?,?,?,?,?,?)", (r["id"], ours, r["address"], r["type"], r["trigger_at"],
+                                                      r["trigger_mc"], r["first_mc"], r["times"], now))
+                    if not cur.rowcount:
+                        continue                            # seen before
+                    self.counts["gm_signals"] += 1
+                    tok = self._followed(ours, r["address"])
+                    if tok is not None and r["type"] in names:
+                        k = f"gm_sig_{names[r['type']]}_n"
+                        tok.gm = {**(tok.gm or {}), k: ((tok.gm or {}).get(k) or 0) + 1}
+            except Exception:   # noqa: BLE001
+                log.exception("GMGN signals failed for %s", chain)
+            await asyncio.sleep(sig.poll_s)
 
     # ------------------------------------------------------------------ who pulls liquidity
     async def pull_loop(self) -> None:
@@ -1242,9 +1300,15 @@ class Engine:
                      "open_labels": sum(t.open_labels() for t in self.pump.values()) + sum(
                          t.open_labels() for t in self.dex.values())},
             "stream": {"connected": s.connected, "last_msg_age_s": now - s.last_msg if s.last_msg else None,
-                       "msgs": s.msgs, "events": s.events, "reconnects": s.reconnects, "mb": round(s.bytes / 1e6, 1)},
+                       "msgs": s.msgs, "events": s.events, "reconnects": s.reconnects, "mb": round(s.bytes / 1e6, 1),
+                       **s.node()},
             "apis": {**({"gmgn": {"calls": self.gmgn.calls, "errors": self.gmgn.errors, "rate_limited": self.gmgn.limited,
-                                  "backlog_s": round(self.gmgn.backlog_s(), 1)}} if self.gmgn.enabled else {}),
+                                  "backlog_s": round(self.gmgn.backlog_s(), 1),
+                                  "remaining": getattr(self.gmgn, "remaining", None),
+                                  "last_limit": getattr(self.gmgn, "last_limit", None),
+                                  "signals": self.counts.get("gm_signals", 0),
+                                  "list_hits": self.counts.get("gm_list_hits", 0),
+                                  "token_lookups": self.counts.get("gm_lookups", 0)}} if self.gmgn.enabled else {}),
                      **{k: {"calls": v.calls, "errors": v.errors, "rate_limited": v.limited,
                             "backlog_s": round(v.backlog_s(), 1)} for k, v in self.http.limiters.items()}},
             "gmgn": self.gmgn.enabled,

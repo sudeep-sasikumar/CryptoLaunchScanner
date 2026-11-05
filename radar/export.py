@@ -66,6 +66,9 @@ def build_day(db_path: Path, day: str) -> bytes:
         for r in con.execute("SELECT id, launchpad, chain, creator, liq_max_usd, liq_now_usd, pull_state, pull_checks, "
                              "pull_ts FROM tokens WHERE created_ts >= ? AND created_ts < ? AND pull_checks > 0", (start, end)):
             put({"kind": "pull", **dict(r)})                 # looked up again later: was the liquidity still there?
+        if con.execute("SELECT 1 FROM sqlite_master WHERE name='gm_signals'").fetchone():
+            for r in con.execute("SELECT * FROM gm_signals WHERE seen_ts >= ? AND seen_ts < ?", (start, end)):
+                put({"kind": "signal", **dict(r)})          # GMGN signal events, as they fired
         if con.execute("SELECT 1 FROM sqlite_master WHERE name='paper'").fetchone():
             for r in con.execute("SELECT * FROM paper WHERE opened_ts >= ? AND opened_ts < ?", (start, end)):
                 row = dict(r)

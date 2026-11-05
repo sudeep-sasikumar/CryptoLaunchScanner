@@ -167,7 +167,7 @@ dashboard's Calls tab and in the daily summary.
 
 | Source | Used for | Limit seen |
 |---|---|---|
-| **GMGN OpenAPI** (free key) | New launches on every launchpad (`/v1/trenches`, seconds after creation); per token: holders, top 10, dev, insiders, bundlers, phishing, snipers, bots, fresh wallets, smart money, KOLs, creator history, socials, X followers, TG calls, DexScreener payments, contract safety, LP burn | free plan 5 weight/s (token call 1, feed 2); the scanner needs about 1.5/s |
+| **GMGN OpenAPI** (free key) | Three launch lists per chain in one request (`/v1/trenches`: new, about to graduate, graduated - about 60 each, every item with GMGN's holder, wallet-label, creator and socials figures), which also give the figures for every followed coin in them; token info for coins not in the lists and for call finalists (plus the creator's best earlier coin); the signal feed (smart money / KOL buys, spikes, DexScreener ads, CTO, fee claims) | free plan 5 weight/s; weights measured 2026-11-05 from GMGN's own header are higher than documented: token info 2, security 2, lists 3, signals 1. The scanner spends at most 70% (about 1.5/s in practice) |
 | Solana RPC websocket, pump.fun program logs | Every pump.fun create / trade / graduation, with slot numbers | 150-350 messages/s; measured 23-35 GB/day of download (0.7-1 TB/month), more when the market is busy |
 | GeckoTerminal `new_pools`, `trades` | DEX pools GMGN's feed does not list; first buyers of a pool (for wallet reputation); the only discovery without a GMGN key | ~5 calls/min free (measured), 30 with a free CoinGecko demo key |
 | DexScreener `tokens/v1` | Price / volume / txns for 30 tokens per call, any chain; paid profiles | 300/min documented |
@@ -320,7 +320,13 @@ Override without editing the file: `RADAR_OVERRIDES="call.top_pct=1;label.target
 - **No live X mention counts** (paid API). X followers and Telegram call counts come from GMGN.
 - **The public Solana RPC can drop.** It dropped 3 times in 7 minutes on 2026-10-15. Tokens live
   during a drop are set aside and never trained on, so drops cost data. A private RPC websocket in
-  `SOLANA_WS_URL` (for example a free Helius key) should be steadier; not tested here.
+  `SOLANA_WS_URL` (for example a Helius key) was steadier, but the free Helius plan stopped delivering
+  after about 36 hours (28-29 Oct 2026; the feed is heavy). Since then a node that delivers nothing
+  3 times in a row is left for the free public one, and tried again 30 minutes later at the next drop.
+  The dashboard health shows which node is in use and its last error (never the key).
+- **GMGN's rate limit is stricter than its docs.** At the documented weights 78% of requests were
+  refused (5 Nov 2026). The client now uses the measured weights, slows down when GMGN's
+  remaining-budget header runs low and sends nothing during a pause (requests then lengthen it).
 - **A restart loses open tracking.** Unfinished snapshots are set aside, open calls marked expired.
 - **Holder data ignores transfers** on pump.fun (it is rebuilt from trades). Phantom sells and
   RugCheck cover part of the gap.
@@ -348,5 +354,5 @@ radar/export.py          daily research files served at /api/research
 tools/sync_research.py   PC: daily copy of the research files + traits report
 tools/analyze.py         PC: what the 2x / 4x / 10x / 100x runners have in common
 tools/retrain.py         PC: ask the VPS for a retrain (automatic retraining is off)
-tests/                   72 tests
+tests/                   84 tests
 ```

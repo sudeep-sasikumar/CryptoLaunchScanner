@@ -76,6 +76,13 @@ CREATE TABLE IF NOT EXISTS models (
 CREATE TABLE IF NOT EXISTS feature_keys (id INTEGER PRIMARY KEY, keys TEXT UNIQUE);   -- factor names per layout
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS alerts (dedupe TEXT PRIMARY KEY, ts REAL, kind TEXT, text TEXT, msg_id INTEGER, status TEXT);
+-- GMGN signal events (smart money / KOL buys, price spikes, DexScreener ads ...) as they fired
+CREATE TABLE IF NOT EXISTS gm_signals (
+  id TEXT PRIMARY KEY, chain TEXT, address TEXT, type INTEGER, trigger_at REAL, trigger_mc REAL, first_mc REAL,
+  times REAL, seen_ts REAL
+);
+CREATE INDEX IF NOT EXISTS ix_gm_signals_addr ON gm_signals(address);
+CREATE INDEX IF NOT EXISTS ix_gm_signals_seen ON gm_signals(seen_ts);
 """
 
 SEEN_WINDOW_S = 600

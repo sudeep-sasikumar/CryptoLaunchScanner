@@ -11,6 +11,9 @@ sources:
   pump:                      # pump.fun: every create / trade / graduation, straight from the Solana program logs
     enabled: true
     ws_url: wss://api.mainnet-beta.solana.com    # free public RPC; SOLANA_WS_URL in .env overrides (e.g. a Helius key)
+    fallback_ws_url: wss://api.mainnet-beta.solana.com   # used when the node above delivers nothing ...
+    switch_after: 3          # ... this many sessions in a row (e.g. a private node out of credits)
+    retry_primary_s: 1800    # then the private node is tried again this long later, at the next drop
     rpc_url: https://api.mainnet-beta.solana.com
     stall_s: 30              # no message for this long = reconnect
   gecko:                     # new DEX pools via GeckoTerminal (free): launches GMGN's feed does not list, and the
@@ -65,8 +68,10 @@ sources:
     old_poll_s: 30           # ... and for older ones
   gmgn:                      # GMGN OpenAPI (GMGN_API_KEY): holders, insiders, bundlers, phishing, snipers, dev,
     enabled: true            # smart money / KOLs, socials, contract safety - and new launches on every launchpad
-    weight_per_sec: 5        # free plan 5, Plus 20, Pro 50 (token calls weigh 1, the launch feed 2)
-    feed_limit: 30           # newest launches fetched per poll
+    weight_per_sec: 5        # free plan 5, Plus 20, Pro 50 (measured weights: token info 2, security 2, lists 3, signals 1)
+    budget: 0.7              # use at most this share of the plan (GMGN bans bursts at the full rate)
+    list_fresh_s: 60         # a token seen in GMGN's launch lists this recently needs no token-info request
+    feed_limit: 80           # items per launch list (GMGN serves about 60 at most)
     max_age_s: 600           # launches older than this when first seen are ignored
     # which launchpads to watch per chain (GMGN's names); pump.fun on Solana is read from the chain itself,
     # its feed entries only add socials (X followers, TG calls, reused links)
@@ -77,7 +82,14 @@ sources:
       sol_pump:  {poll_s: 10, chain: sol, socials_only: true, platforms: [Pump.fun, pump_mayhem, pump_agent, pump_mayhem_agent]}
       robinhood: {poll_s: 10, platforms: [pons_v2, pons, flap, bankr, clanker, longxyz, circus]}
       bsc:       {poll_s: 10, platforms: [fourmeme, fourmeme_agent, bn_fourmeme, four_xmode_agent, flap, flap_stocks, clanker, lunafun]}
-      base:      {poll_s: 15, platforms: [clanker, bankr, flaunch, zora, zora_creator, baseapp, basememe, virtuals_v2, klik]}
+      base:      {poll_s: 20, platforms: [clanker, bankr, flaunch, zora, zora_creator, baseapp, basememe, virtuals_v2, klik]}
+    signals:                 # GMGN's signal events, stored as they fire and counted on the tokens we follow
+      enabled: true
+      poll_s: 30
+      chains: [sol, robinhood, bsc]
+      groups: [[12], [20], [1, 6, 7], [2, 3, 4, 5, 11, 13, 19], [10, 18]]   # at most 50 events per group
+      names: {12: smart_buy, 20: kol_buy, 1: spike, 6: spike, 7: ath, 2: dex_ad, 3: dex_link, 4: dex_trending,
+              5: dex_boost, 11: cto, 13: platform_call, 19: platform_call, 10: bundler_sell, 18: pump_claim}
   rugcheck: {enabled: true, calls_per_min: 12}     # Solana holders / insiders / risk flags (limit 15)
   # GMGN-like holder data from other services - each optional, each with its own key (see README):
   codex:                     # CODEX_API_KEY - every chain: holders, top 10, snipers, bundlers, insiders, dev

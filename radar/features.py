@@ -261,6 +261,8 @@ def apply_gmgn(f: dict, g: dict | None, feed: dict | None, own_trades: bool) -> 
         if src:
             f.update({k: v for k, v in src.items() if not k.startswith("_")})
     g, feed = g or {}, feed or {}
+    if g.get("_gm_ts"):
+        f["gm_age_s"] = round(time.time() - g["_gm_ts"], 1)      # how old GMGN's reading is at this moment
 
     def fill(k, v):
         if v is not None and f.get(k) is None:
