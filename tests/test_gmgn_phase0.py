@@ -202,3 +202,48 @@ def test_gmgn_zero_progress_does_not_put_a_pool_coin_on_a_curve(tmp_path):
     assert e._on_curve(tok("letsbonk", 0.0, on_curve=True))          # just launched, from the launch feed
     assert not e._on_curve(tok("letsbonk", 100.0, on_curve=True))
     assert e._on_curve(tok("pons-v2", None))
+
+
+def test_permanent_lock_read_from_a_meteora_pool_account():
+    from radar.sources.locks import LIQ_AT, PERM_AT, POOL_DISC, damm_v2_locked_pct
+    raw = bytearray(1112)
+    raw[:8] = POOL_DISC
+    raw[LIQ_AT:LIQ_AT + 16] = (1000).to_bytes(16, "little")
+    raw[PERM_AT:PERM_AT + 16] = (960).to_bytes(16, "little")
+    assert damm_v2_locked_pct(bytes(raw)) == 96.0
+    raw[PERM_AT:PERM_AT + 16] = (0).to_bytes(16, "little")
+    assert damm_v2_locked_pct(bytes(raw)) == 0.0                     # creator can take it all out
+    assert damm_v2_locked_pct(b"\0" * 1112) is None                  # not a DAMM v2 pool account
+
+
+def test_gmgn_burnt_counts_only_liquidity_nobody_can_get_back():
+    from radar.sources.gmgn import lp_locked_pct
+    burnt = {"lock_summary": {"is_locked": True, "lock_percent": "0.95",
+                              "lock_detail": [{"percent": "0.95", "pool": "0x0000000000000000000000000000000000000000",
+                                               "is_blackhole": True}]}}
+    locker = {"lock_summary": {"is_locked": True, "lock_detail": [{"percent": "1", "pool": "3rd_locked", "is_blackhole": False}]}}
+    assert lp_locked_pct(burnt) == 95.0
+    assert lp_locked_pct(locker) == 0.0                              # a timed locker ends: not pull-proof
+    assert lp_locked_pct({"burn_status": "burn"}) == 100.0
+
+
+async def test_pool_coin_is_callable_only_with_its_liquidity_locked(tmp_path):
+    from radar.scoring import pull_proof
+    from radar.state import DexToken
+    e = _engine(tmp_path)
+
+    class Locks:
+        async def solana_pool(self, pool):
+            return {"LOCKED": 100.0, "OPEN": 0.0}.get(pool)
+    e.locks = Locks()
+    pp = e.cfg.call.pull_proof
+    for pool, ok in (("LOCKED", True), ("OPEN", False), ("UNKNOWN", False)):
+        t = DexToken(id="solana:M", chain="solana", address="M", pool=pool, dex="meteora-damm-v2",
+                     launchpad="meteora-damm-v2", name="M", symbol="M", created_ts=time.time())
+        t.gm = {"gm_progress_pct": 0.0, "gm_burnt_pct": 100.0 if pool == "OPEN" else 0.0}
+        assert not e._on_curve(t)
+        await e._check_lock(t)
+        f = {"px_on_curve": 0, "launchpad": t.launchpad,
+             "sec_lp_locked_pct": t.lp_lock if t.lp_lock is not None else t.gm["gm_burnt_pct"]}
+        assert pull_proof(f, pp) is ok, pool                         # the chain overrides GMGN for DAMM v2
+    await e.http.close()

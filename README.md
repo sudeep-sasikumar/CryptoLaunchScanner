@@ -142,6 +142,16 @@ curve, graduated from a launchpad that burns or locks the LP (pump.fun, PONS, fo
 the LP locked. Every coin is still scored and labelled, so the model keeps learning from all of them.
 Set `PULL_PROOF_ONLY=false` to call every launchpad again.
 
+**Locked pools count too (2026-11-06).** A coin trading in an ordinary pool is callable when 95%+ of that
+pool can never be withdrawn, read again at every snapshot: Meteora DAMM v2 from the pool account on the
+chain (`permanent_lock_liquidity` / `liquidity`), other chains from GMGN's "Burnt" figure (LP sent to a dead
+address; timed third-party locks are not counted). Checked that day: of 422 DAMM v2 pools, the 404 later
+emptied had no permanent lock and the 2 locked ones kept their liquidity; on Robinhood Uniswap v4, 24 of 25
+pools GMGN showed 95% burned kept their liquidity and 59 of 60 emptied pools showed no lock. Locked pools are
+rare (about 0.5% of DAMM v2 coins), so most pool coins are still not called. GMGN reports 0% progress for
+coins that never had a curve: that no longer counts them as on one (it did on 5-6 Nov; 11 calls on pools
+that were then emptied).
+
 **Learning who pulls.** Each DEX coin that held at least $1,000 is looked up again on GeckoTerminal at 6,
 24 and 48 hours. If its pools then hold under $50 the liquidity is gone (pulled, or drained by the creator
 dumping): the coin is marked, its creator's record counts a pull (`cr_pulled_n`, a factor the model sees),

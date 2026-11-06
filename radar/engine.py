@@ -26,6 +26,7 @@ from .notify import Telegram, call_text, esc, message_ids, money
 from .scoring import gate, prior_score
 from .sources.dexscreener import SYSTEM, DexScreener, QuoteBook
 from .sources.gecko import Gecko, canonical_launchpad
+from .sources.locks import ChainLocks
 from .sources.gmgn import OURS, Gmgn, from_trenches, signal_row, trench_stats
 from .sources.intel import Codex, GeckoInfo, SolanaTracker
 from .sources.metadata import Metadata
@@ -54,6 +55,7 @@ class Engine:
         self.metadata = Metadata(src.metadata, self.db)
         self.narrator = Narrator(src.llm, cfg.secret("ANTHROPIC_API_KEY"), self.db)
         self.gmgn = Gmgn(src.gmgn, cfg.secret("GMGN_API_KEY"))
+        self.locks = ChainLocks(self.http, src.pump.rpc_url)
         self.codex = Codex(self.http, src.codex, cfg.secret("CODEX_API_KEY"), self.db)
         self.stracker = SolanaTracker(self.http, src.solanatracker, cfg.secret("SOLANATRACKER_API_KEY"), self.db)
         self.telegram = Telegram(cfg.telegram, cfg.secret("TELEGRAM_BOT_TOKEN"), cfg.secret("TELEGRAM_CHAT_ID"), self.db)
@@ -572,10 +574,14 @@ class Engine:
         ctx["wq"] = self.rep.summarize(entries) if entries else None
         ctx["creator"] = self.rep.creator(tok.seen["creator"]) if tok.seen.get("creator") else None
         ctx["on_curve"] = self._on_curve(tok)
+        if not ctx["on_curve"]:
+            await self._check_lock(tok)
         self._paid_flags(tok)
         f = dex_features(tok, cp, now, ctx)
         apply_gmgn(f, tok.gm, tok.gm_feed, own_trades=False)
         apply_intel(f, [self._fresh_cx(tok), tok.gti])
+        if tok.lp_lock is not None and not f.get("px_on_curve"):
+            f["sec_lp_locked_pct"] = tok.lp_lock            # the chain's own answer beats any data provider's
         mc = f.get("px_mcap_usd")
         if (mc is not None and mc < self.cfg.label.min_mcap_usd) or f.get("px_liq_usd") == 0:
             return              # an empty or mispriced pool: its "multiples" (1,500x ...) would only teach noise
@@ -657,6 +663,25 @@ class Engine:
                         t.cx = (now, r)
             except Exception:   # noqa: BLE001
                 log.exception("Codex batch failed")
+
+    async def _check_lock(self, tok) -> None:
+        """For a coin trading in a pool: how much of that pool can never be withdrawn, read again at every
+        snapshot (a creator may burn the LP after launch). Meteora DAMM v2 from the pool account on the chain;
+        other chains from GMGN's security block. Launchpads that always lock (pump.fun, PONS ...) need no look."""
+        pp = self.cfg.call.pull_proof
+        if tok.launchpad in pp["graduated_locked"] or (tok.lp_lock or 0) >= pp["min_locked_pct"]:
+            return
+        try:
+            if tok.chain == "solana":
+                pct = await asyncio.wait_for(self.locks.solana_pool(tok.pool), 10)
+                if pct is not None:
+                    tok.lp_lock = pct
+            elif self.gmgn.enabled and not self.gmgn.backlog_s() > 20:
+                pct = await asyncio.wait_for(self.gmgn.lp_locked(tok.chain, tok.address), 10)
+                if pct is not None:
+                    tok.gm = {**(tok.gm or {}), "gm_burnt_pct": pct}
+        except asyncio.TimeoutError:
+            pass
 
     def _on_curve(self, tok) -> bool:
         """Still on a bonding curve? Known from the launch feed or from the DEX the coin trades on. GMGN's

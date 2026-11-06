@@ -173,6 +173,23 @@ class Gmgn:
         sec = await self._call("GET", "/v1/token/security", 1, {"chain": c, "address": address}) if with_security else None
         return parse_token(info, sec if isinstance(sec, dict) else None)
 
+    async def lp_locked(self, chain: str, address: str) -> float | None:
+        """Fresh reading of how much of the pool can never be withdrawn (security block only), or None."""
+        sec = await self._call("GET", "/v1/token/security", 2, {"chain": CHAIN.get(chain, chain), "address": address})
+        return lp_locked_pct(sec) if isinstance(sec, dict) and sec else None
+
+
+def lp_locked_pct(sec: dict) -> float:
+    """Share of the pool's liquidity that can never be withdrawn, in percent (GMGN's "Burnt"): LP sent to a
+    dead address (lock_summary entries marked is_blackhole), LP burned, or Solana's burn_status. Locks with a
+    third-party locker are left out: they end. Checked 2026-11-06 on Robinhood Uniswap v4: pools GMGN shows
+    95% burned kept their liquidity; pools it shows unlocked were emptied."""
+    lock = sec.get("lock_summary") or {}
+    dead = sum(_f(d.get("percent")) or 0 for d in lock.get("lock_detail") or []
+               if isinstance(d, dict) and d.get("is_blackhole") in (True, "true", 1, "1"))
+    return round(max(_pct(sec.get("burn_ratio")) or 0, dead * 100,
+                     100.0 if sec.get("burn_status") == "burn" else 0.0), 2)
+
 
 def parse_token(info: dict, sec: dict | None) -> dict:
     """Map GMGN's token info / security into factor names. Rates come as 0-1; stored as percent."""
@@ -228,8 +245,6 @@ def parse_token(info: dict, sec: dict | None) -> dict:
         "_gm_creator": str(dev.get("creator_address") or "")[:64],
     }
     if sec:
-        lock = sec.get("lock_summary") or {}
-        locked = sum(_f(d.get("percent")) or 0 for d in lock.get("lock_detail") or [] if isinstance(d, dict))
         f.update({
             "gm_sec_ok": 1,
             "gm_honeypot": None if sec.get("honeypot") in (None, "") and sec.get("is_honeypot") is None
@@ -242,8 +257,7 @@ def parse_token(info: dict, sec: dict | None) -> dict:
             else int(bool(sec.get("renounced_freeze_account"))),
             "gm_tax_max": max(_pct(sec.get("buy_tax")) or 0, _pct(sec.get("sell_tax")) or 0)
             if sec.get("buy_tax") not in (None, "") or sec.get("sell_tax") not in (None, "") else None,
-            "gm_burnt_pct": max(_pct(sec.get("burn_ratio")) or 0, locked * 100,
-                                100.0 if sec.get("burn_status") == "burn" else 0.0),
+            "gm_burnt_pct": lp_locked_pct(sec),
             "gm_flags_n": len(sec.get("flags") or []),
             "gm_insider_hold_pct": _pct(sec.get("suspected_insider_hold_rate")),
             "gm_sniper_count": _f(sec.get("sniper_count")),
