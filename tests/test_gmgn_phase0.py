@@ -183,3 +183,22 @@ async def test_followed_coin_in_a_list_needs_no_lookup_and_signals_are_counted(t
     await e._gm_fetch(tok)
     assert e.gmgn.lookups == 1
     await e.http.close()
+
+
+def test_gmgn_zero_progress_does_not_put_a_pool_coin_on_a_curve(tmp_path):
+    """GMGN gives 0 progress for coins that never had a curve; only the DEX or the launch feed says a coin
+    is on one, and GMGN's progress can only say a curve coin has graduated."""
+    from radar.state import DexToken
+    e = _engine(tmp_path)
+    def tok(dex, progress, on_curve=None):
+        t = DexToken(id="solana:X", chain="solana", address="X", pool="P", dex=dex, launchpad=dex, name="X", symbol="X",
+                     created_ts=time.time())
+        t.gm, t.on_curve = ({"gm_progress_pct": progress} if progress is not None else None), on_curve
+        return t
+    assert not e._on_curve(tok("meteora-damm-v2", 0.0))              # a raw pool: liquidity can be pulled
+    assert not e._on_curve(tok("uniswap-v4-robinhood", 0.0))
+    assert e._on_curve(tok("meteora-dbc", 40.0))                     # still on the curve
+    assert not e._on_curve(tok("meteora-dbc", 100.0))                # graduated
+    assert e._on_curve(tok("letsbonk", 0.0, on_curve=True))          # just launched, from the launch feed
+    assert not e._on_curve(tok("letsbonk", 100.0, on_curve=True))
+    assert e._on_curve(tok("pons-v2", None))

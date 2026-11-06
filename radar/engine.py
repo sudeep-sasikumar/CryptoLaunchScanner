@@ -571,9 +571,7 @@ class Engine:
         entries = list((tok.trades or {}).get("entries", {}))
         ctx["wq"] = self.rep.summarize(entries) if entries else None
         ctx["creator"] = self.rep.creator(tok.seen["creator"]) if tok.seen.get("creator") else None
-        progress = (tok.gm or {}).get("gm_progress_pct")
-        ctx["on_curve"] = (progress < 99.9) if progress is not None else (
-            tok.on_curve if tok.on_curve is not None else any(d in tok.dex for d in self.cfg.sources.gecko.curve_dexes))
+        ctx["on_curve"] = self._on_curve(tok)
         self._paid_flags(tok)
         f = dex_features(tok, cp, now, ctx)
         apply_gmgn(f, tok.gm, tok.gm_feed, own_trades=False)
@@ -659,6 +657,15 @@ class Engine:
                         t.cx = (now, r)
             except Exception:   # noqa: BLE001
                 log.exception("Codex batch failed")
+
+    def _on_curve(self, tok) -> bool:
+        """Still on a bonding curve? Known from the launch feed or from the DEX the coin trades on. GMGN's
+        progress can only say a curve coin has graduated: GMGN gives 0 progress for coins that never had a
+        curve (Meteora DAMM v2, Uniswap pools ...), which once counted them as on a curve and so pull-proof
+        (5-6 Nov 2026: 11 calls on such pools, 90% of them later emptied by their creators)."""
+        on = tok.on_curve if tok.on_curve is not None else any(d in tok.dex for d in self.cfg.sources.gecko.curve_dexes)
+        progress = (tok.gm or {}).get("gm_progress_pct")
+        return bool(on and (progress is None or progress < 99.9))
 
     async def _gm_fetch(self, tok, force: bool = False) -> dict | None:
         """GMGN's numbers for a token. A reading from GMGN's launch lists younger than `list_fresh_s` is used
