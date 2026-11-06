@@ -75,6 +75,23 @@ async def test_rate_limit_pause_stops_every_request_and_low_budget_slows_down():
     await g.close()
 
 
+async def test_requests_queued_during_a_pause_are_spaced_out_after_it():
+    sent = []
+
+    def handler(req):
+        sent.append(time.monotonic())
+        if len(sent) == 1:
+            return httpx.Response(429, json={"error": "RATE_LIMIT_EXCEEDED", "reset_at": time.time() + 0.3})
+        return httpx.Response(200, json={"code": 0, "data": {}}, headers={"x-ratelimit-remaining": "5"})
+
+    g = _gmgn(handler)
+    await g._call("GET", "/v1/token/info", 2)
+    await asyncio.gather(*[g._call("GET", "/v1/token/info", 2) for _ in range(4)])
+    gaps = [b - a for a, b in zip(sent[1:], sent[2:])]
+    assert len(sent) == 5 and min(gaps) >= 2 * g.base_gap * 0.9      # one slot per request, not a burst
+    await g.close()
+
+
 async def test_three_lists_requested_in_one_call():
     seen = {}
 

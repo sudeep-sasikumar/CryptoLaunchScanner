@@ -73,21 +73,28 @@ class Gmgn:
         return max(0.0, self._next - time.monotonic(), self.banned_until - time.time())
 
     async def _wait(self, weight: int) -> None:
-        async with self._lock:
-            now = time.monotonic()
-            delay = self._next - now
-            self._next = max(now, self._next) + self.gap * weight
-        ban = self.banned_until - time.time()
-        if max(delay, ban) > 0:
-            await asyncio.sleep(max(delay, ban))
+        """Take the next free slot in the pacing queue. A request whose slot falls inside a rate-limit pause
+        queues again after the pause, so the waiting requests are spaced out instead of all firing the
+        moment it ends (that burst is what earned the next pause)."""
+        while True:
+            ban = self.banned_until - time.time()
+            if ban > 0:
+                await asyncio.sleep(ban + 0.1)
+                continue
+            async with self._lock:
+                now = time.monotonic()
+                delay = self._next - now
+                self._next = max(now, self._next) + self.gap * weight
+            if delay > 0:
+                await asyncio.sleep(delay)
+            if time.time() >= self.banned_until:
+                return
 
     async def _call(self, method: str, path: str, weight: int, query: dict | None = None, body: dict | None = None):
         if not self.enabled:
             return None
         weight = WEIGHT.get(path, weight)
         await self._wait(weight)
-        while time.time() < self.banned_until:              # a pause started while this call was queued:
-            await asyncio.sleep(self.banned_until - time.time() + 0.1)   # calling now would extend it
         q = dict(query or {}, timestamp=int(time.time()), client_id=str(uuid.uuid4()))
         self.calls += 1
         try:
@@ -112,6 +119,7 @@ class Gmgn:
             if until > self.banned_until + 1:
                 log.warning("GMGN rate limit (%s) on %s - no GMGN calls for %.0f s", code, path, until - time.time())
             self.banned_until = max(self.banned_until, until)
+            self._next = max(self._next, time.monotonic() + (until - time.time()))   # queue restarts after it
             self.last_limit = {"ts": time.time(), "path": path, "code": code, "pause_s": round(until - time.time(), 1)}
             self.gap = min(self.gap * 1.5, 4 * self.base_gap)   # and slow down for a while
             return None

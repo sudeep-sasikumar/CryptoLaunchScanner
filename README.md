@@ -354,5 +354,5 @@ radar/export.py          daily research files served at /api/research
 tools/sync_research.py   PC: daily copy of the research files + traits report
 tools/analyze.py         PC: what the 2x / 4x / 10x / 100x runners have in common
 tools/retrain.py         PC: ask the VPS for a retrain (automatic retraining is off)
-tests/                   84 tests
+tests/                   85 tests
 ```
