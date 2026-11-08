@@ -664,6 +664,16 @@ class Engine:
             except Exception:   # noqa: BLE001
                 log.exception("Codex batch failed")
 
+    def _name_launchpad(self, tok, pair: dict) -> None:
+        """GeckoTerminal names only the DEX ("uniswap-v4-elysium"); DexScreener often knows the launchpad
+        ("kleos", "boxa" ...). Take it before the first snapshot so every snapshot carries the same name."""
+        if tok.ticks or tok.launchpad not in (tok.dex, ""):
+            return
+        pad = canonical_launchpad(str(pair.get("dexId") or ""), list(self.cfg.sources.launchpad_names))
+        if pad and pad != tok.launchpad:
+            tok.launchpad = pad
+            self.db.execute("UPDATE tokens SET launchpad=? WHERE id=?", (pad, tok.id))
+
     async def _check_lock(self, tok) -> None:
         """For a coin trading in a pool: how much of that pool can never be withdrawn, read again at every
         snapshot (a creator may burn the LP after launch). Meteora DAMM v2 from the pool account on the chain;
@@ -1087,6 +1097,7 @@ class Engine:
                         if not tok.ticks and born and tok.created_ts - born > 3600:
                             tok.misses = 999                # an old token with a new pool: not a launch
                             continue
+                        self._name_launchpad(tok, p)
                         self._label_events(tok, tok.on_pair(now, p))
                         age = now - tok.created_ts
                         while not tok.tainted and tok.next_cp < len(cps) and age >= cps[tok.next_cp]:

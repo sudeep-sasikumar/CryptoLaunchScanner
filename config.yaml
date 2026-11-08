@@ -25,6 +25,11 @@ sources:
       robinhood: {poll_s: 60,  fast_poll_s: 20}                                      # PONS, StonkBrokers, Uniswap v4 ...
       bsc:       {poll_s: 180, fast_poll_s: 45, only_launchpads: true}               # four.meme ...
       base:      {poll_s: 180, fast_poll_s: 45, only_launchpads: true}               # Clanker, Zora, Virtuals ...
+      # Elysium (Kinetiq's Hyperliquid L2, chain 99901, HYPE gas; public mainnet 2026-11-09). Launchpads put the
+      # whole supply into HYPE-quoted Uniswap v4 pools (~13 new pools a minute on 8 Nov). GMGN, GoPlus and Codex
+      # do not cover it yet, so its coins are tracked, snapshotted and graded but not called: no contract check
+      # and no proof the pool cannot be emptied. The 6/24/48 h liquidity re-checks show which launchpads keep it.
+      elysium:   {poll_s: 60,  fast_poll_s: 15}
     # dex ids that are bonding curves (liquidity held by the launchpad's program until it graduates)
     curve_dexes: [launchlab, meteora-dbc, pons-v2, four-meme, fourmeme, moonshot, boop, heaven, stonk, sunpump]
   # never tracked: on 2026-10-14..16 every fluxbeam "launch" (60, named MASKED, DOPE, JitoSOL ...) was a
@@ -62,6 +67,9 @@ sources:
     - [circus, circus]
     - [sunpump, sunpump]
     - [uniswap-pools-trade, pools-trade]
+    - [kleos, kleos]                  # Elysium launchpads, named from DexScreener's dexId once the price comes in
+    - [boxa, boxa]
+    - [elyspump, elyspump]
   dexscreener:
     calls_per_min: 200       # documented limit 300
     poll_s: 15               # price / volume snapshot cadence for tokens younger than 15 minutes ...

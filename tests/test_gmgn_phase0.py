@@ -247,3 +247,23 @@ async def test_pool_coin_is_callable_only_with_its_liquidity_locked(tmp_path):
              "sec_lp_locked_pct": t.lp_lock if t.lp_lock is not None else t.gm["gm_burnt_pct"]}
         assert pull_proof(f, pp) is ok, pool                         # the chain overrides GMGN for DAMM v2
     await e.http.close()
+
+
+async def test_elysium_coin_named_from_dexscreener_and_never_sent_to_gmgn(tmp_path):
+    from radar.state import DexToken
+    e = _engine(tmp_path)
+    assert "elysium" in e.cfg.sources.gecko.networks
+    t = DexToken(id="elysium:0xabc", chain="elysium", address="0xabc", pool="0xpool", dex="uniswap-v4-elysium",
+                 launchpad="uniswap-v4-elysium", name="K", symbol="K", created_ts=time.time())
+    e._name_launchpad(t, {"dexId": "kleos", "labels": ["v4"]})
+    assert t.launchpad == "kleos"
+    u = DexToken(id="elysium:0xdef", chain="elysium", address="0xdef", pool="0xp2", dex="uniswap-v4-elysium",
+                 launchpad="uniswap-v4-elysium", name="U", symbol="U", created_ts=time.time())
+    e._name_launchpad(u, {"dexId": "uniswap", "labels": ["v4"]})
+    assert u.launchpad == "uniswap-v4-elysium"                       # plain pool: stays the DEX name
+    sent = []
+    g = _gmgn(lambda req: sent.append(req) or httpx.Response(400, json={"error": "CHAIN_NOT_SUPPORTED"}))
+    assert await g.token("elysium", "0xabc") is None and await g.lp_locked("elysium", "0xabc") is None
+    assert not sent                                                  # GMGN does not cover Elysium: not asked
+    await g.close()
+    await e.http.close()

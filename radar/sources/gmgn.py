@@ -166,7 +166,9 @@ class Gmgn:
     # ---------------------------------------------------------------- per token
     async def token(self, chain: str, address: str, with_security: bool = True) -> dict | None:
         """GMGN's token page as factors (gm_*), or None when GMGN does not know the token yet."""
-        c = CHAIN.get(chain, chain)
+        if chain not in CHAIN:
+            return None
+        c = CHAIN[chain]
         info = await self._call("GET", "/v1/token/info", 1, {"chain": c, "address": address})
         if not isinstance(info, dict) or not info.get("symbol"):
             return None                      # an empty info block means GMGN has no record (per GMGN's own docs)
@@ -175,7 +177,9 @@ class Gmgn:
 
     async def lp_locked(self, chain: str, address: str) -> float | None:
         """Fresh reading of how much of the pool can never be withdrawn (security block only), or None."""
-        sec = await self._call("GET", "/v1/token/security", 2, {"chain": CHAIN.get(chain, chain), "address": address})
+        if chain not in CHAIN:
+            return None
+        sec = await self._call("GET", "/v1/token/security", 2, {"chain": CHAIN[chain], "address": address})
         return lp_locked_pct(sec) if isinstance(sec, dict) and sec else None
 
 

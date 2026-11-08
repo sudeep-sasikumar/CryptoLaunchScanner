@@ -188,6 +188,13 @@ dashboard's Calls tab and in the daily summary.
 | RugCheck | Solana holders, insiders, risk flags when GMGN has no answer | 15/min (was down during testing) |
 | Token metadata + t.me | Socials, image, Telegram members | - |
 
+**Elysium (added 2026-11-08).** Kinetiq's Hyperliquid L2 (chain 99901, HYPE gas, public mainnet 9 Nov 2026).
+Launches are found through GeckoTerminal (`elysium`, ~13 new HYPE-quoted Uniswap v4 pools a minute) and
+priced through DexScreener; the launchpad is named from DexScreener (kleos, boxa, elyspump) when it knows
+it. GMGN, GoPlus and Codex do not cover Elysium yet, so its coins are snapshotted and graded but never called:
+no contract check and no proof the pool cannot be emptied. The 6/24/48 h liquidity re-checks show which
+pools keep their liquidity; a launchpad proven to lock it can then be added to `call.pull_proof`.
+
 PONS is on Robinhood Chain (GMGN platforms `pons_v2`, `pons`); StonkFun deploys through Raydium
 LaunchLab on Solana. Which launchpads are watched per chain: `config.yaml` → `sources.gmgn.chains`;
 one name per launchpad across sources: `sources.launchpad_names`.
