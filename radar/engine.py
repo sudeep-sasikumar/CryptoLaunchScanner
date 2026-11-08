@@ -27,6 +27,7 @@ from .scoring import gate, prior_score
 from .sources.dexscreener import SYSTEM, DexScreener, QuoteBook
 from .sources.gecko import Gecko, canonical_launchpad
 from .sources.locks import ChainLocks
+from .sources.elysium import Elysium
 from .sources.gmgn import OURS, Gmgn, from_trenches, signal_row, trench_stats
 from .sources.intel import Codex, GeckoInfo, SolanaTracker
 from .sources.metadata import Metadata
@@ -56,6 +57,7 @@ class Engine:
         self.narrator = Narrator(src.llm, cfg.secret("ANTHROPIC_API_KEY"), self.db)
         self.gmgn = Gmgn(src.gmgn, cfg.secret("GMGN_API_KEY"))
         self.locks = ChainLocks(self.http, src.pump.rpc_url)
+        self.elysium = Elysium(self.http, src.get("elysium") or {"enabled": False})
         self.codex = Codex(self.http, src.codex, cfg.secret("CODEX_API_KEY"), self.db)
         self.stracker = SolanaTracker(self.http, src.solanatracker, cfg.secret("SOLANATRACKER_API_KEY"), self.db)
         self.telegram = Telegram(cfg.telegram, cfg.secret("TELEGRAM_BOT_TOKEN"), cfg.secret("TELEGRAM_CHAT_ID"), self.db)
@@ -151,6 +153,8 @@ class Engine:
             loops.append(self.stream.run())
         if self.cfg.sources.gecko.enabled:
             loops += [self.discover_loop(net) for net in self.cfg.sources.gecko.networks]
+        if self.elysium.enabled:
+            loops.append(self.elysium_loop())
         if self.gmgn.enabled:
             loops += [self.gmgn_feed_loop(name) for name in self.cfg.sources.gmgn.chains]
             sig = self.cfg.sources.gmgn.get("signals") or {}
@@ -531,6 +535,8 @@ class Engine:
             jobs = [self.security.goplus_solana(tok.address) if solana else self.security.goplus(tok.chain, tok.address)]
             if solana:
                 jobs.append(self.security.rugcheck(tok.address))   # holders, insiders, creator - refreshed per snapshot
+        if tok.chain == "elysium" and self.elysium.enabled and not (tok.security or {}).get("_template"):
+            jobs.append(self._elysium_check(tok))
         n_sec = len(jobs)
         if not (tok.gm or {}).get("gm_ok") and tok.gti is None:
             jobs.append(self.gtinfo.lookup(tok.chain, tok.address, max_backlog_s=15))
@@ -664,9 +670,17 @@ class Engine:
             except Exception:   # noqa: BLE001
                 log.exception("Codex batch failed")
 
+    async def _elysium_check(self, tok) -> None:
+        res = await self.elysium.contract_check(tok.launchpad, tok.address)
+        if res:
+            tok.security = {**(tok.security or {}), **res}
+
     def _name_launchpad(self, tok, pair: dict) -> None:
         """GeckoTerminal names only the DEX ("uniswap-v4-elysium"); DexScreener often knows the launchpad
         ("kleos", "boxa" ...). Take it before the first snapshot so every snapshot carries the same name."""
+        if not tok.name:
+            base = pair.get("baseToken") or {}
+            tok.name, tok.symbol = str(base.get("name") or "")[:80], str(base.get("symbol") or "")[:40]
         if tok.ticks or tok.launchpad not in (tok.dex, ""):
             return
         pad = canonical_launchpad(str(pair.get("dexId") or ""), list(self.cfg.sources.launchpad_names))
@@ -1043,6 +1057,28 @@ class Engine:
             return self.summary_text()
         return "/status - is it running\n/calls - the last calls and how they did\n/stats - the last 24 hours"
 
+    async def elysium_loop(self) -> None:
+        """New Elysium launches straight from the chain (pool creations), launchpad known from the start."""
+        poll = float(self.cfg.sources.elysium.get("poll_s") or 5)
+        while True:
+            try:
+                for p in await self.elysium.new_pools():
+                    tid = f"elysium:{p['token']}"
+                    if tid in self.dex or p["launchpad"] in self.cfg.sources.skip_launchpads:
+                        continue
+                    if self.db.one("SELECT 1 FROM tokens WHERE id=?", (tid,)):
+                        continue
+                    now = time.time()
+                    tok = DexToken(id=tid, chain="elysium", address=p["token"], pool=p["pool"], dex="uniswap-v4-elysium",
+                                   launchpad=p["launchpad"], name="", symbol="", created_ts=now, quote="HYPE")
+                    tok.seen = self._seen(tok, now)
+                    self.dex[tid] = tok
+                    self.counts["dex_found"] += 1
+                    self.counts["elysium_found"] = self.counts.get("elysium_found", 0) + 1
+            except Exception:   # noqa: BLE001
+                log.exception("Elysium discovery failed")
+            await asyncio.sleep(poll)
+
     async def discover_loop(self, network: str) -> None:
         net = self.cfg.sources.gecko.networks[network]
         poll = net.get("fast_poll_s", net["poll_s"]) if self.gecko.headers else net["poll_s"]
@@ -1345,6 +1381,7 @@ class Engine:
             "stream": {"connected": s.connected, "last_msg_age_s": now - s.last_msg if s.last_msg else None,
                        "msgs": s.msgs, "events": s.events, "reconnects": s.reconnects, "mb": round(s.bytes / 1e6, 1),
                        **s.node()},
+            "elysium": self.elysium.health() if self.elysium.enabled else None,
             "apis": {**({"gmgn": {"calls": self.gmgn.calls, "errors": self.gmgn.errors, "rate_limited": self.gmgn.limited,
                                   "backlog_s": round(self.gmgn.backlog_s(), 1),
                                   "remaining": getattr(self.gmgn, "remaining", None),

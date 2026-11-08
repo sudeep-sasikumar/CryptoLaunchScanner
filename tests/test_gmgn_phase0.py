@@ -252,7 +252,7 @@ async def test_pool_coin_is_callable_only_with_its_liquidity_locked(tmp_path):
 async def test_elysium_coin_named_from_dexscreener_and_never_sent_to_gmgn(tmp_path):
     from radar.state import DexToken
     e = _engine(tmp_path)
-    assert "elysium" in e.cfg.sources.gecko.networks
+    assert e.elysium.enabled and "elysium" not in e.cfg.sources.gecko.networks   # found on the chain
     t = DexToken(id="elysium:0xabc", chain="elysium", address="0xabc", pool="0xpool", dex="uniswap-v4-elysium",
                  launchpad="uniswap-v4-elysium", name="K", symbol="K", created_ts=time.time())
     e._name_launchpad(t, {"dexId": "kleos", "labels": ["v4"]})
@@ -266,4 +266,36 @@ async def test_elysium_coin_named_from_dexscreener_and_never_sent_to_gmgn(tmp_pa
     assert await g.token("elysium", "0xabc") is None and await g.lp_locked("elysium", "0xabc") is None
     assert not sent                                                  # GMGN does not cover Elysium: not asked
     await g.close()
+    await e.http.close()
+
+
+def _init_log(manager, hook, t0, t1, pool="0x" + "ab" * 32):
+    pad = lambda a: "0x" + "0" * 24 + a[2:]
+    data = "0x" + "0" * 64 + "0" * 64 + "0" * 24 + hook[2:] + "0" * 128
+    return {"address": manager, "topics": ["0xdd46", pool, pad(t0), pad(t1)], "data": data, "blockNumber": "0x10"}
+
+
+def test_elysium_pool_creation_names_its_launchpad():
+    from radar.sources.elysium import SHARED_PM, parse_init
+    coin = "0x" + "12" * 20
+    p = parse_init(_init_log(SHARED_PM, "0x6b1216a40b65c83e9c9e18a562c446697b8cf8ec", "0x" + "0" * 40, coin))
+    assert p["launchpad"] == "montra" and p["token"] == coin
+    p = parse_init(_init_log(SHARED_PM, "0x" + "0" * 40, "0x" + "0" * 40, coin))
+    assert p["launchpad"] == "elysium-v4"                             # no launchpad hook: not pull-proof
+    assert parse_init(_init_log(SHARED_PM, "0x" + "0" * 40, coin, "0x" + "34" * 20)) is None   # not against HYPE
+
+
+async def test_elysium_contract_check_is_the_launchpads_own_template(tmp_path):
+    from radar.sources.elysium import Elysium, skeleton, TEMPLATES
+    clone = bytes.fromhex("363d3d373d3d3d363d73") + bytes.fromhex("10b0292fb853966d3039d80bbef98b1a9507f55f") + bytes.fromhex("5af43d82803e903d91602b57fd5bf3")
+    assert skeleton(clone) in TEMPLATES["montra"]                    # a clone of Montra's token master
+    e = _engine(tmp_path)
+    ely = Elysium(e.http, {"enabled": True})
+    codes = {"0xgood": "0x" + clone.hex(), "0xbad": "0x6080604052"}
+    async def rpc(method, params):
+        return codes.get(params[0])
+    ely.rpc = rpc
+    assert (await ely.contract_check("montra", "0xgood"))["sec_checked"] == 1
+    assert "sec_checked" not in await ely.contract_check("montra", "0xbad")     # some other contract: no check
+    assert "sec_checked" not in await ely.contract_check("volta", "0xgood")     # not on the clean list
     await e.http.close()

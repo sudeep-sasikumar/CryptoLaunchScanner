@@ -188,12 +188,23 @@ dashboard's Calls tab and in the daily summary.
 | RugCheck | Solana holders, insiders, risk flags when GMGN has no answer | 15/min (was down during testing) |
 | Token metadata + t.me | Socials, image, Telegram members | - |
 
-**Elysium (added 2026-11-08).** Kinetiq's Hyperliquid L2 (chain 99901, HYPE gas, public mainnet 9 Nov 2026).
-Launches are found through GeckoTerminal (`elysium`, ~13 new HYPE-quoted Uniswap v4 pools a minute) and
-priced through DexScreener; the launchpad is named from DexScreener (kleos, boxa, elyspump) when it knows
-it. GMGN, GoPlus and Codex do not cover Elysium yet, so its coins are snapshotted and graded but never called:
-no contract check and no proof the pool cannot be emptied. The 6/24/48 h liquidity re-checks show which
-pools keep their liquidity; a launchpad proven to lock it can then be added to `call.pull_proof`.
+**Elysium (2026-11-08).** Kinetiq's Hyperliquid L2 (chain 99901, HYPE gas, 74 ms blocks). GMGN, GoPlus and
+Codex do not cover it, so the scanner reads it from the chain itself (`radar/sources/elysium.py`):
+- New launches: Uniswap v4 `Initialize` events every 5 s, through community RPC nodes with automatic
+  fail-over (rpc.elyscan.info, rpc.elyspump.com, rpc-live.elysp.com, rpc.elyscan.live; `ELYSIUM_RPC_URL`
+  is tried first when set). Prices from DexScreener.
+- Launchpad: read from the pool's PoolManager + hook (contracts from agoradex.app's launchpad table, matched
+  to its token tags).
+- Contract check: the token's bytecode must be its launchpad's own template (immutables masked); those
+  templates have no owner, mint, pause or blacklist function.
+- Pull-proof: Montra, Mesa, ElysPump, Eleos, Zyora, Obol, Elyxa, BOXA, Kleos and Ascend pools are seeded as
+  one position owned by the launchpad's hook or launcher contract. Over the chain's whole history (~43,000
+  pools a day) none of their pools ever had liquidity removed, while pools without a launchpad hook did (15%).
+  Docs say so explicitly for Montra, Mesa, ElysPump, Eleos, Zyora and Obol; BOXA, Kleos and Ascend rest on the
+  chain record (their sites refuse automated reads). Volta (mint function in its token, docs silent on the
+  lock) and RONS (token has an owner) are tracked, not called.
+- Pool fees on some pads are high (Mesa 1-10% + an early sniper surcharge, Eleos taxed coins up to 10% each
+  way), which a grade or paper trade at 3% slippage does not show.
 
 PONS is on Robinhood Chain (GMGN platforms `pons_v2`, `pons`); StonkFun deploys through Raydium
 LaunchLab on Solana. Which launchpads are watched per chain: `config.yaml` → `sources.gmgn.chains`;
