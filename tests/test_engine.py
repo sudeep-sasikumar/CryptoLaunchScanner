@@ -121,7 +121,7 @@ async def test_a_2x_is_stored_the_moment_it_happens_and_survives_a_later_gap(tmp
     snap = e.db.one("SELECT * FROM snapshots")
     assert snap["hit"] == 1 and snap["done"] == 0                # final already, though still being followed
     from radar import model as learner
-    assert learner.Dataset(e.db.path, "pump", 100).y.tolist() == [1]  # so training sees it right away
+    assert learner.Dataset(e.db.path, "pump", 100).y.tolist() == []   # trained on once following ends (how tradeable)
     e.on_gap(60)                                                 # the feed drops afterwards
     assert tok.tainted and tok.labels[0].done and not tok.labels[0].tainted
     e._tick(now + 301)

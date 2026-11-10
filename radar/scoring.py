@@ -205,6 +205,11 @@ def gate(f: dict, cfg, learned: bool = False, final: bool = False) -> str | None
         return "someone can freeze or blacklist holders"
     if f.get("gm_wash"):
         return "GMGN: wash trading detected"
+    made, ratio = f.get("gm_creator_created_n"), f.get("gm_creator_open_ratio")
+    if made and made >= g["serial_creator_min_launches"] and (ratio or 0) < g["serial_creator_max_grad_ratio"]:
+        # applies with a model too: on 5 days of unseen coins the retrained model's top picks from serial
+        # launchers made a tradeable 2x 13% of the time vs 25% for the rest (both families, every period)
+        return f"serial launcher: {made:,.0f} coins, {(ratio or 0) * 100:.1f}% graduated"
     # a bonding curve always buys back; only a pool can be too thin to sell into
     if not f.get("px_on_curve") and f.get("px_liq_usd") is not None and f["px_liq_usd"] < g["min_liquidity_usd"]:
         return "liquidity too thin"
@@ -230,9 +235,6 @@ def gate(f: dict, cfg, learned: bool = False, final: bool = False) -> str | None
         return f"phishing wallets hold {f['hx_phishing_pct']:.0f}%"
     if (f.get("gm_rug_ratio") or 0) > g["max_rug_ratio"]:
         return f"GMGN rug ratio {f['gm_rug_ratio']:.2f}"
-    made, ratio = f.get("gm_creator_created_n"), f.get("gm_creator_open_ratio")
-    if made and made >= g["serial_creator_min_launches"] and (ratio or 0) < g["serial_creator_max_grad_ratio"]:
-        return f"serial launcher: {made:,.0f} coins, {(ratio or 0) * 100:.1f}% graduated"
     return _pull_veto(f, cfg)
 
 

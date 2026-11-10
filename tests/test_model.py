@@ -27,10 +27,11 @@ def _fill(db: DB, n: int, signal: bool, seed: int = 1) -> None:
         f = {"launch_bundle_pct": bundle, "dist_holders": holders, "noise": noise, "chain": "solana",
              "launchpad": rng.choice(["pump.fun", "pons"]), "sometimes": None if i % 3 else 1.0, "_private": "x"}
         ts = now - (n - i) * 60
+        tx = json.dumps({"t": {"2": 120}, "hold2": 300} if hit else {"t": {}, "hold2": None})   # a tradeable 2x
         rows.append((f"tok{i}", "pump", 60, ts, ts - 60, 1.0, json.dumps(f), 50 + rng.uniform(-10, 10), 1, 0, hit,
-                     2.5 if hit else 1.1))
+                     2.5 if hit else 1.1, tx))
     db.executemany("INSERT INTO snapshots(token_id,family,cp,ts,token_created_ts,price,features,prior,done,tainted,hit,"
-                   "peak_mult) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+                   "peak_mult,tx) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     db.commit()
 
 
@@ -72,11 +73,19 @@ def test_tainted_and_unfinished_snapshots_are_never_trained_on(tmp_path):
     db = DB(tmp_path / "t.db")
     _fill(db, 50, signal=True)
     db.execute("UPDATE snapshots SET tainted=1 WHERE id<=10")
-    db.execute("UPDATE snapshots SET done=0, hit=NULL WHERE id>40")     # still being followed, no outcome yet
-    db.execute("UPDATE snapshots SET hit=1 WHERE id=50")                # still followed, but already 2x: final
+    db.execute("UPDATE snapshots SET done=0, hit=NULL, tx=NULL WHERE id>40")   # still being followed, no outcome yet
+    db.execute("UPDATE snapshots SET hit=1 WHERE id=50")                # already 2x, but how tradeable is not known yet
+    db.execute("UPDATE snapshots SET tx=? WHERE id=40", (json.dumps({"t": {"2": 30}, "hold2": 500}),))   # 2x too soon
     db.commit()
     ds = learner.Dataset(db.path, "pump", 1000)
-    assert ds.X.shape[0] == 31 and ds.y[-1] == 1
+    assert ds.X.shape[0] == 30 and ds.y[-1] == 0
+
+
+def test_only_a_tradeable_2x_counts_as_a_win():
+    assert learner.tradeable_win('{"t":{"2":75},"hold2":61}') == 1
+    assert learner.tradeable_win('{"t":{"2":20},"hold2":900}') == 0       # 2x within a minute: could not be bought in time
+    assert learner.tradeable_win('{"t":{"2":300},"hold2":12}') == 0       # gone again before anyone could sell
+    assert learner.tradeable_win('{"t":{},"hold2":null}') == 0 and learner.tradeable_win(None) is None
 
 
 def test_compact_rows_round_trip_and_train_like_plain_ones(tmp_path):
@@ -98,3 +107,13 @@ def test_threshold_is_the_lowest_cut_that_keeps_the_target_hit_rate():
     assert t["thr"] == 0.9 and t["expected_precision"] == 1.0
     t = learner.pick_threshold(y, np.full(1000, 0.05), target=0.5, floor=0.25, fallback_share=0.02)
     assert t["how"] == "top-share" and t["thr"] == 0.25 and t["n_calls"] == 0     # nothing confident: no calls
+
+
+def test_pullable_pools_are_neither_learned_from_nor_tested_on():
+    pp = {"graduated_locked": ["pump.fun", "pons", "montra"], "min_locked_pct": 95}
+    assert learner.callable_row({}, "pump", pp)
+    assert learner.callable_row({"launchpad": "montra"}, "dex", pp)                         # locked by the launchpad
+    assert learner.callable_row({"launchpad": "meteora-dbc", "px_on_curve": 1}, "dex", pp)   # still on a curve
+    assert not learner.callable_row({"launchpad": "meteora-damm-v2", "px_on_curve": 1}, "dex", pp)   # the 5-8 Nov bug
+    assert not learner.callable_row({"launchpad": "uniswap-v4-robinhood"}, "dex", pp)
+    assert learner.callable_row({"launchpad": "uniswap-v4-robinhood", "sec_lp_locked_pct": 95.0}, "dex", pp)

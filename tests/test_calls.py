@@ -15,7 +15,7 @@ from .helpers import cfg
 
 
 def test_call_bar_is_a_chance_of_2x_settable_in_percent(monkeypatch):
-    assert load_config().call.min_prob == 0.5
+    assert load_config().call.min_prob == 0.2
     monkeypatch.setenv("CALL_MIN_CHANCE", "60")
     c = load_config()
     assert c.call.min_prob == 0.6 and c.call.target_precision == 0.6
@@ -23,8 +23,8 @@ def test_call_bar_is_a_chance_of_2x_settable_in_percent(monkeypatch):
 
 def test_model_threshold_never_below_the_chosen_chance(tmp_path):
     e = Engine(cfg(f"app.data_dir={tmp_path.as_posix()};dashboard.enabled=false"))
-    e.models["all"] = SimpleNamespace(thr=0.27, ver="m1")
-    assert e.threshold(time.time()) == ("prob", 0.5)
+    e.models["all"] = SimpleNamespace(thr=0.12, ver="m1")
+    assert e.threshold(time.time()) == ("prob", 0.2)
     e.models["all"] = SimpleNamespace(thr=0.62, ver="m2")
     assert e.threshold(time.time()) == ("prob", 0.62)
     asyncio.run(e.http.close())

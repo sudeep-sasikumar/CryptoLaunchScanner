@@ -94,7 +94,14 @@ the creator-pull block, the conviction ranking against the last 24 h, the daily 
    saw. The new model replaces the old one only if it clearly beats the hand scorecard, beats luck
    (99% of random rankings), and is no worse than the model in use.
 4. **Threshold moves too.** The call cut-off is set where the newest data shows the target hit rate
-   (`call.target_precision`, default 50%; never below `call.min_prob`).
+   (`call.target_precision`, default 30%; never below `call.min_prob`, 20%).
+   **What the model learns (2026-11-10): a tradeable 2x** - 2x first reached at least 60 s after the snapshot
+   and held at 1.8x+ for at least 60 s, i.e. a move someone could buy into and sell out of. On 5 days of
+   unseen coins (walk-forward, callable coins only) a model retrained on this target put 27% tradeable 2x in
+   its top 2% and 23% in its top 5%, against 15% / 13% for the model trained on 20 Oct (whose top picks were
+   mostly flap and Elysium coins it had no skill on). Training on "2x before -50%" gave 24% / 21%.
+   GMGN's figures add ~1 point at most on top of our own (creator history, top 10, liquidity are among the
+   factors it uses); its smart-money / KOL signals are strong but rare (+1 point, not consistent).
 5. **Wallet and creator reputations** update after every finished token.
 6. **Readable output.** The dashboard tab "What it has learned" shows, for every factor, the 2x rate
    in each value range - so you can see what matters without trusting a model.
@@ -270,7 +277,7 @@ printed to the console. `python main.py --minutes 5` runs a 5-minute smoke test;
    | `TELEGRAM_SILENT_OUTCOMES` | optional | `true`/`false`: those replies arrive without a sound (default true) |
    | `TELEGRAM_DAILY_SUMMARY_UTC` | optional | e.g. `06:00`, or `off` |
    | `TELEGRAM_COMMANDS` | optional | `true` to answer `/status` `/calls` `/stats` - needs a bot of its own (Ignition & Coil already reads its bot's messages) |
-   | `CALL_MIN_CHANCE` | optional | only call coins the model gives at least this % chance of 2x (default 50; lower = more calls, higher = fewer) |
+   | `CALL_MIN_CHANCE` | optional | only call coins the model gives at least this % chance of a tradeable 2x (default 20; lower = more calls, higher = fewer) |
    | `CALLS_PER_HOUR` | optional | most calls in one hour (default 10) |
    | `CALL_MIN_TIER` | optional | `1` (default): only 🔥 high and 🔥🔥 very high calls are sent; `2`: very high only; `0`: every call |
    | `PULL_PROOF_ONLY` | optional | `true` (default): only call coins whose liquidity cannot be pulled; `false`: every launchpad |
@@ -312,7 +319,7 @@ dropped first.
 |---|---|---|
 | `label.target` / `label.stop` | 2.0 / 0.5 | What counts as a hit |
 | `call.top_pct` | 2.0 | Before a model exists: call the top X% of scores (scorecard 75+ until 100 scores exist) |
-| `call.min_prob` / `call.target_precision` | 0.50 | With a model: minimum chance of 2x to call (`CALL_MIN_CHANCE`) |
+| `call.min_prob` / `call.target_precision` | 0.20 / 0.30 | With a model: minimum chance of a tradeable 2x to call (`CALL_MIN_CHANCE`) |
 | `call.max_per_hour` | 10 | Alert cap |
 | `paper.*` | $25, high + very high | Paper trading: stake, tiers, take-profit ladder, stop, slippage, fees |
 | `call.conviction` | 5 / 1 | 🔥 high = top 5%, 🔥🔥 very high = top 1% of the last 24 h |

@@ -1,4 +1,4 @@
-"""The learner: turns labelled snapshots into a probability that a token 2x's from here.
+"""The learner: turns labelled snapshots into a probability of a tradeable 2x from here (TRADE_DELAY_S).
 
 Every retrain is a small honest experiment, split by time (never shuffled - tomorrow must be
 predicted from yesterday):
@@ -28,6 +28,39 @@ from pathlib import Path
 import numpy as np
 
 log = logging.getLogger("model")
+TRADE_DELAY_S = 60      # a runner counts when 2x is first reached at least this long after the snapshot ...
+TRADE_HOLD_S = 60       # ... and stays >= 1.8x for at least this long: a move someone could actually trade
+
+
+def tradeable_win(tx: str | None) -> int | None:
+    """1 if the move was a tradeable 2x (see Label.tradeable), 0 if not, None if not recorded."""
+    if not tx:
+        return None
+    try:
+        d = json.loads(tx)
+    except (TypeError, ValueError):
+        return None
+    t2 = (d.get("t") or {}).get("2")
+    return int(t2 is not None and t2 >= TRADE_DELAY_S and (d.get("hold2") or 0) >= TRADE_HOLD_S)
+
+
+# DEX pools whose creator can take the liquidity out. Their grades are not trustworthy: once a pool is emptied
+# its last price freezes, and a coin frozen at a high looks like a tradeable winner. They are never called
+# either, so the model neither learns from them nor is tested on them. (Before 8 Nov such pools were wrongly
+# marked as on a curve, hence the launchpad list and not only px_on_curve.)
+POOL_PADS = ("meteora-damm-v2", "meteora", "raydium", "raydium-clmm", "pools-trade", "orca", "elysium-v4", "elysium-hook")
+
+
+def callable_row(f: dict, family: str, pp) -> bool:
+    """Could this snapshot be called under the pull-proof rule (call.pull_proof)?"""
+    if family == "pump":
+        return True
+    pad = str(f.get("launchpad") or "")
+    if pad in (pp or {}).get("graduated_locked", ()):
+        return True
+    if f.get("px_on_curve"):
+        return not (pad in POOL_PADS or pad.startswith("uniswap"))
+    return (f.get("sec_lp_locked_pct") or 0) >= ((pp or {}).get("min_locked_pct") or 95)
 CATEGORICAL = ("chain", "launchpad", "source")    # source: every trade seen (stream) or snapshots (poll)
 HALF_LIFE_DAYS = 30.0
 
@@ -37,19 +70,23 @@ class Dataset:
     """Labelled snapshots as a float32 matrix. Built in two passes over the stored rows so that no
     per-row dictionaries are ever held: 250k snapshots take ~150 MB instead of several GB."""
 
-    def __init__(self, db_path: Path, family: str, max_rows: int, min_share: float = 0.02):
+    def __init__(self, db_path: Path, family: str, max_rows: int, min_share: float = 0.02, pull_proof=None):
         con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30)
         try:
             self.layouts = {i: tuple(json.loads(k)) for i, k in con.execute("SELECT id, keys FROM feature_keys")}
-            # a 2x is final the moment it happens (hit=1), a loss when the label is done
+            # target: a tradeable 2x (reached 60 s+ after the snapshot, held 60 s+), known once the label is done.
+            # 2026-11-10, walk-forward on 5 days of unseen coins: top 2% picks 27% tradeable 2x with this target
+            # vs 24% with "2x before -50%" and 15% for the model trained 20 Oct.
             # family "all" = every launchpad in one model (the launchpad itself is one of the factors)
             rows = con.execute(
-                "SELECT token_id, ts, fkeys, features, prior, hit FROM snapshots WHERE (?='all' OR family=?) "
-                "AND tainted=0 AND (done=1 OR hit=1) ORDER BY token_created_ts DESC, id DESC LIMIT ?",
+                "SELECT token_id, ts, fkeys, features, prior, tx, family FROM snapshots WHERE (?='all' OR family=?) "
+                "AND tainted=0 AND done=1 AND tx IS NOT NULL ORDER BY token_created_ts DESC, id DESC LIMIT ?",
                 (family, family, max_rows)).fetchall()
         finally:
             con.close()
         rows.reverse()
+        if pull_proof is not None:
+            rows = [r for r in rows if callable_row(dict(self.items(r)), r[6], pull_proof)]
         counts: dict[str, int] = {}
         cats: dict[str, set] = {c: set() for c in CATEGORICAL}
         for r in rows:
@@ -65,7 +102,7 @@ class Dataset:
         self.tokens = [r[0] for r in rows]
         self.ts = np.array([r[1] for r in rows], dtype=np.float64)
         self.prior = np.array([r[4] or 0.0 for r in rows], dtype=np.float64)
-        self.y = np.array([int(r[5] or 0) for r in rows], dtype=np.int8)
+        self.y = np.array([tradeable_win(r[5]) or 0 for r in rows], dtype=np.int8)
         self.rows = rows
         self.X = self.build(rows, self.names, self.vocab)
 
@@ -231,7 +268,7 @@ def train(db_path: Path, family: str, cfg, call_cfg, models_dir: Path, champion_
     from .config import Section
     cfg, call_cfg = Section(cfg), Section(call_cfg)
     t0 = time.time()
-    ds = Dataset(db_path, family, cfg.max_rows)
+    ds = Dataset(db_path, family, cfg.max_rows, pull_proof=dict(call_cfg.pull_proof) if call_cfg.get("pull_proof") else None)
     y, prior, X, names, vocab = ds.y, ds.prior, ds.X, ds.names, ds.vocab
     n, pos = len(y), int(y.sum())
     report: dict = {"family": family, "n_rows": n, "n_pos": pos, "base_rate": pos / n if n else None,
