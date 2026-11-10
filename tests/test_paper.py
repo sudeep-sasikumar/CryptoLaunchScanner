@@ -12,12 +12,15 @@ from radar.state import Label
 
 from .helpers import cfg
 
-C = cfg("paper.entry_delay_s=0")               # these check the arithmetic: buy at once
+# these check the arithmetic of a ladder (buy at once): 50% at 2x, 25% at 4x, 25% at 8x, stop -50%. The plan in
+# config.yaml is a single sale at 2x with a -30% stop (test_owner_plan_sells_everything_at_2x_or_minus_30).
+LADDER = "paper.entry_delay_s=0;paper.stop=0.5;paper.take_profit=[[2, 0.5], [4, 0.25], [8, 0.25]]"
+C = cfg(LADDER)
 K = 0.97 * 0.99                                       # every sell: 3% slippage, 1% fee
 
 
 def _setup(tmp_path, price_now=1.0, overrides=""):
-    c = cfg("paper.entry_delay_s=0;" + overrides) if overrides else C
+    c = cfg(LADDER + ";" + overrides) if overrides else C
     db = DB(tmp_path / "radar.db")
     paper = Paper(db, c.paper)
     lb = Label(1, 0.0, 1.0 / 1.03, c.label)          # label entry 1.0 (snapshot price + 3%)
@@ -104,14 +107,14 @@ def test_engine_follows_paper_trades_every_tick(tmp_path):
     lb.update(1.0, 0.4)
     e.last_tick = time.time()
     e._tick(time.time())
-    assert e.db.one("SELECT reason FROM paper WHERE call_id=9")["reason"] == "stop -50%"
+    assert e.db.one("SELECT reason FROM paper WHERE call_id=9")["reason"] == "stop -30%"     # the plan in config.yaml
     assert "Paper trading: 1 closed" in e.summary_text()
     asyncio.run(e.http.close())
 
 
 def test_bought_after_the_reaction_delay_at_the_price_then(tmp_path):
     db = DB(tmp_path / "radar.db")
-    c = cfg("paper.entry_delay_s=30")
+    c = cfg(LADDER.replace("paper.entry_delay_s=0", "paper.entry_delay_s=30"))
     paper = Paper(db, c.paper)
     lb = Label(1, 0.0, 1.0 / 1.03, c.label)
     t0 = time.time()
@@ -130,7 +133,7 @@ def test_bought_after_the_reaction_delay_at_the_price_then(tmp_path):
 
 def test_no_buy_when_following_ends_before_the_fill(tmp_path):
     db = DB(tmp_path / "radar.db")
-    c = cfg("paper.entry_delay_s=30")
+    c = cfg(LADDER.replace("paper.entry_delay_s=0", "paper.entry_delay_s=30"))
     paper = Paper(db, c.paper)
     lb = Label(1, 0.0, 1.0 / 1.03, c.label)
     t0 = time.time()
@@ -139,3 +142,18 @@ def test_no_buy_when_following_ends_before_the_fill(tmp_path):
     paper.step(t0 + 5)
     r = db.one("SELECT * FROM paper WHERE call_id=8")
     assert r["state"] == "closed" and r["reason"].startswith("not filled") and r["pnl_usd"] == 0
+
+
+def test_owner_plan_sells_everything_at_2x_or_minus_30(tmp_path):
+    plan = cfg().paper
+    assert [list(x) for x in plan.take_profit] == [[2, 1.0]] and plan.stop == 0.7
+    c = cfg("paper.entry_delay_s=0")
+    for prices, reason, mult in (([1.3, 2.05], "take profit 2x", 2.0), ([0.9, 0.69], "stop -30%", 0.69)):
+        db = DB(tmp_path / f"{reason[:4]}.db")
+        paper = Paper(db, c.paper)
+        lb = Label(1, 0.0, 1.0 / 1.03, c.label)
+        paper.open(7, SimpleNamespace(id="solana:Xpump", symbol="X", launchpad="pump.fun"), lb, 2, 1.0 / 1.03, time.time())
+        _feed(paper, lb, prices)
+        r = db.one("SELECT * FROM paper WHERE call_id=7")
+        assert r["state"] == "closed" and r["left"] == 0
+        assert r["pnl_usd"] == pytest.approx(25 * mult * K - 25 * 0.01 - 25), reason
